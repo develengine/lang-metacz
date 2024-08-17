@@ -1,0 +1,7 @@
+program
+*.exe
+*.exe.old
+*.obj
+tests
+build
+build.old
