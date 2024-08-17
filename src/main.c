@@ -1,8 +1,6 @@
-#include "core/utils.h"
+#include "utils.h"
 
-#include <stdio.h>
-
-i32
+int
 main(void)
 {
     printf("\\_/\n V\n");
