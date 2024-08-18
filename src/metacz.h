@@ -49,8 +49,27 @@ typedef struct
 
 typedef struct
 {
+    unsigned label_offset;
+    unsigned label_count;
+    unsigned stack_base;
+    unsigned stack_diff;
+} cz_scope_t;
+
+typedef struct
+{
+    unsigned code_index;
+} cz_label_t;
+
+typedef struct
+{
     unsigned index;
-} cz_func_ref_t;
+} cz_scope_ref_t;
+
+typedef struct
+{
+    unsigned scope_index;
+    unsigned index;
+} cz_label_ref_t;
 
 typedef struct
 {
@@ -66,7 +85,8 @@ typedef struct
     unsigned output_offset;
     unsigned output_count;
 
-     cz_func_ref_t parent_ref;
+    unsigned parent_index;
+    unsigned stack_diff;
 } cz_func_t;
 
 typedef struct
@@ -83,9 +103,14 @@ typedef struct
     unsigned output_offset;
     unsigned output_count;
 
-    cz_func_ref_t func_ref;
-
+    unsigned func_index;
+    unsigned scope_index;
 } cz_rec_func_t;
+
+typedef struct
+{
+    unsigned index;
+} cz_func_ref_t;
 
 typedef struct
 {
@@ -97,17 +122,6 @@ typedef struct
 
 typedef struct
 {
-    unsigned label_offset;
-    unsigned label_count;
-} cz_scope_t;
-
-typedef struct
-{
-    unsigned code_index;
-} cz_scope_label_t;
-
-typedef struct
-{
     DCK_STRETCHY_T (cz_func_t, unsigned) funcs;
     cz_func_data_t func;
 
@@ -116,8 +130,8 @@ typedef struct
 
     unsigned stack_size;
 
-    DCK_STRETCHY_T (cz_scope_t,       unsigned) scopes;
-    DCK_STRETCHY_T (cz_scope_label_t, unsigned) scope_labels;
+    DCK_STRETCHY_T (cz_scope_t, unsigned) scopes;
+    DCK_STRETCHY_T (cz_label_t, unsigned) labels;
 
     char error[1024];
 } cz_t;
