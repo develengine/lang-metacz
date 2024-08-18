@@ -8,13 +8,26 @@ backlog
 [ ] The jump expressions should be more general and not specify the type of condition in the jump itself.
   - Not sure though.
 
+
+* There shouldn't be special instructions for jumps, only unconditional jump and nonzero jump.
+* There shouldn't be special loads or stores, the reference should be enough to tell.
+  - Maybe except for immediate values.
+* The op instructions should have separate functions, but just one. Separate macros will call this function.
+* Names of things should be more structured and they should use the cz prefix.
+* We shouldn't rely on specific bit widths of the variables, but write slightly more generic code.
+
+
 17/08/2024
-[ ] Make the functions be able to call each other.
-  [ ] Allow for recursive functions to compile.
-    [ ] Implement the backpatching.
-[ ] We need to trim memory to the smallest possible before jumps and function calls.
-[ ] Create a separate buffer for vm_function output objects, so that we can also deduce them.
-[ ] Make it so that the compiler doesn't emit code that writes beyon the memory.count.
+- So... a months work has been lost to something retarded. Maybe the cpu overheated, I dunno.
+  - The interpreter file was literally deleted from the disk when the PC blacked out.
+- We will use this as an opportunity to rewrite metacz and fix the current shitness.
+
+[-] Make the functions be able to call each other.
+  [-] Allow for recursive functions to compile.
+    [-] Implement the backpatching.
+[-] We need to trim memory to the smallest possible before jumps and function calls.
+[-] Create a separate buffer for vm_function output objects, so that we can also deduce them.
+[-] Make it so that the compiler doesn't emit code that writes beyon the memory.count.
 
 15/08/2024
     [X] Generator for moving the called function's outputs back to the start of the current stack.
