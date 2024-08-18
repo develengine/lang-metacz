@@ -1,6 +1,10 @@
 #ifndef METACZ_H_
 #define METACZ_H_
 
+
+#include "utils.h"
+
+
 typedef struct
 {
     unsigned short greater;
@@ -34,11 +38,25 @@ typedef struct
 typedef struct
 {
     cz_type_ref_t type_ref;
+    unsigned      length;
+} cz_type_array_t;
+
+typedef struct
+{
+    cz_type_ref_t type_ref;
     bool          is_reference;
 } cz_object_t;
 
 typedef struct
 {
+    unsigned index;
+} cz_func_ref_t;
+
+typedef struct
+{
+    unsigned code_offset;
+    unsigned code_count;
+
     unsigned input_offset;
     unsigned input_count;
 
@@ -47,11 +65,31 @@ typedef struct
 
     unsigned output_offset;
     unsigned output_count;
+
+     cz_func_ref_t parent_ref;
 } cz_func_t;
 
 typedef struct
 {
-    DCK_STRETCHY_T (cz_inst_t,   unsigned) insts;
+    unsigned code_offset;
+    unsigned code_count;
+
+    unsigned input_offset;
+    unsigned input_count;
+
+    unsigned local_offset;
+    unsigned local_count;
+
+    unsigned output_offset;
+    unsigned output_count;
+
+    cz_func_ref_t func_ref;
+
+} cz_rec_func_t;
+
+typedef struct
+{
+    DCK_STRETCHY_T (cz_inst_t,   unsigned) code;
     DCK_STRETCHY_T (cz_object_t, unsigned) inputs;
     DCK_STRETCHY_T (cz_object_t, unsigned) outputs;
     DCK_STRETCHY_T (cz_object_t, unsigned) locals;
@@ -59,11 +97,27 @@ typedef struct
 
 typedef struct
 {
-    cz_func_data_t rec;
-    DCK_STRETCHY_T (cz_func_t, unsigned) rec_funcs;
+    unsigned label_offset;
+    unsigned label_count;
+} cz_scope_t;
 
-    cz_func_data_t func;
+typedef struct
+{
+    unsigned code_index;
+} cz_scope_label_t;
+
+typedef struct
+{
     DCK_STRETCHY_T (cz_func_t, unsigned) funcs;
+    cz_func_data_t func;
+
+    DCK_STRETCHY_T (cz_rec_func_t, unsigned) rec_funcs;
+    cz_func_data_t rec;
+
+    unsigned stack_size;
+
+    DCK_STRETCHY_T (cz_scope_t,       unsigned) scopes;
+    DCK_STRETCHY_T (cz_scope_label_t, unsigned) scope_labels;
 
     char error[1024];
 } cz_t;
@@ -73,6 +127,7 @@ typedef enum
     cz_obj_Input,
     cz_obj_Local,
     cz_obj_Output,
+    cz_obj_Global,
 } cz_obj_tag_t;
 
 typedef struct
@@ -81,5 +136,16 @@ typedef struct
     cz_obj_tag_t tag;
     unsigned     index;
 } cz_obj_ref_t;
+
+
+void
+cz_abort_if_error(cz_t *cz);
+
+cz_func_ref_t
+cz_func_begin(cz_t *cz);
+
+void
+cz_func_end(cz_t *cz);
+
 
 #endif // METACZ_H_

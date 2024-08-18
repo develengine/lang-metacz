@@ -11,7 +11,7 @@ main(i32 argc, char *argv[])
 
     bld_sa_t cc = {0};
 
-    BLD_SA_PUSH(cc, "src/main.c");
+    BLD_SA_PUSH(cc, "src/main.c", "src/metacz.c");
 
     BLD_SA_PUSH(cc, "-I.", "-Isrc", "-o", output, BLD_WARNINGS);
 
