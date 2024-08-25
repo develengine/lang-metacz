@@ -1,0 +1,17 @@
+
+A type system needs to allow defining some types upfront.
+- Defining new types by operation.
+- It can definitelly be decomposed into binary operations, thus constituting as some abstract algebraic structure.
+- We care about the interface part of the equation.
+
+- Have some basic types already available.
+- Have some operations that allow you to combine some types into different ones.
+  - Here the quiestion of whether we should comprime the type through references arises.
+    - I think we don't have to at all, if we provide the means to do so to the user.
+    - Storing references and reusing the type names is simply a good thing to do in any case.
+
+- We need to implement type systems that can be easily used together and interact with each other.
+
+- The type systems are however very much tied to the backend and how the data is transformed.
+
+

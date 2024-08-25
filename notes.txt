@@ -15,6 +15,7 @@ backlog
 * The op instructions should have separate functions, but just one. Separate macros will call this function.
 * Names of things should be more structured and they should use the cz prefix.
 * We shouldn't rely on specific bit widths of the variables, but write slightly more generic code.
+* We should write the system as lean as possible, let validation layers deal  with a majority of things.
 
 
 17/08/2024

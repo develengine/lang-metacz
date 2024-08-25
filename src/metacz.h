@@ -4,6 +4,11 @@
 
 #include "utils.h"
 
+#define CZ_INST_TABLE \
+    O(ScopeBegin) /* . */ \
+    O(Label)      /* , uint. */ \
+    O(ScopeEnd)   /* . */ \
+/**/
 
 typedef struct
 {
@@ -50,25 +55,27 @@ typedef struct
 typedef struct
 {
     unsigned label_offset;
-    unsigned label_count;
+
     unsigned stack_base;
     unsigned stack_diff;
 } cz_scope_t;
 
 typedef struct
 {
-    unsigned code_index;
+    bool is_linked;
 } cz_label_t;
 
 typedef struct
 {
-    unsigned index;
+    unsigned func_index;
+    unsigned number;
 } cz_scope_ref_t;
 
 typedef struct
 {
-    unsigned scope_index;
-    unsigned index;
+    unsigned func_index;
+    unsigned scope_number;
+    unsigned number;
 } cz_label_ref_t;
 
 typedef struct
@@ -104,7 +111,7 @@ typedef struct
     unsigned output_count;
 
     unsigned func_index;
-    unsigned scope_index;
+    unsigned scope_offset;
 } cz_rec_func_t;
 
 typedef struct
@@ -161,5 +168,16 @@ cz_func_begin(cz_t *cz);
 void
 cz_func_end(cz_t *cz);
 
+cz_scope_ref_t
+cz_scope_begin(cz_t *cz);
+
+cz_label_ref_t
+cz_label(cz_t *cz);
+
+void
+cz_label_link(cz_t *cz, cz_label_ref_t label_ref);
+
+void
+cz_scope_end(cz_t *cz);
 
 #endif // METACZ_H_
