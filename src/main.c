@@ -204,12 +204,31 @@ typedef UTILS_STRETCHY_T (cz2vm_label_t, unsigned) cz2vm_labels_t;
 
 typedef struct
 {
+    cz_scope_t scope_id;
+    cz_label_t label_id;
+    size_t jmp_position;
+} cz2vm_label_patch_t;
+
+typedef UTILS_STRETCHY_T (cz2vm_label_patch_t, unsigned) cz2vm_label_patches_t;
+
+typedef struct
+{
+    cz_scope_t scope_id;
+    size_t jmp_position;
+} cz2vm_scope_patch_t;
+
+typedef UTILS_STRETCHY_T (cz2vm_scope_patch_t, unsigned) cz2vm_scope_patches_t;
+
+typedef struct
+{
     cz2vm_objects_t eval_stack;
     size_t sp;
 
     cz2vm_scopes_t  scopes;
     cz2vm_objects_t scope_results;
     cz2vm_labels_t  labels;
+    cz2vm_label_patches_t label_patches;
+    cz2vm_scope_patches_t scope_patches;
 } cz2vm_t;
 
 static inline size_t
@@ -402,27 +421,129 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
                     UTILS_ASSERT(cz2vm_check_result(cz2vm) == true);
                 }
 
+                unsigned patch_dst_i = 0;
+
+                size_t code_position = code->count;
+
+                for (unsigned patch_i = 0; patch_i < cz2vm->scope_patches.count; ++patch_i) {
+                    cz2vm_scope_patch_t *patch = cz2vm->scope_patches.data + patch_i;
+
+                    if (patch->scope_id == scope.id) {
+                        vm_link(code, patch->jmp_position, code_position);
+                        continue;
+                    }
+
+                    if (patch_i != patch_dst_i) {
+                        cz2vm->scope_patches.data[patch_dst_i] = *patch;
+                    }
+                    ++patch_dst_i;
+                }
+                cz2vm->scope_patches.count = patch_dst_i;
+
                 cz2vm->scopes.count--;
+                cz2vm->labels.count = scope.label_offset;
             } break;
 
             case cz_inst_Label: {
+                UTILS_ASSERT(cz2vm->scopes.count > 0);
                 UTILS_ASSERT(cz2vm_stack_count(cz2vm) == 0);
 
-                UTILS_STRETCHY_PUSH(cz2vm->labels, (cz2vm_label_t) {
+                cz2vm_scope_t scope = cz2vm->scopes.data[cz2vm->scopes.count - 1];
+
+                cz2vm_label_t label = {
                     .id       = inst->label,
                     .position = code->count,
-                });
+                };
+
+                UTILS_STRETCHY_PUSH(cz2vm->labels, label);
+
+                unsigned patch_dst_i = 0;
+
+                for (unsigned patch_i = 0; patch_i < cz2vm->label_patches.count; ++patch_i) {
+                    cz2vm_label_patch_t *patch = cz2vm->label_patches.data + patch_i;
+
+                    if (patch->label_id == label.id) {
+                        UTILS_ASSERT(patch->scope_id == scope.id);
+
+                        vm_link(code, patch->jmp_position, label.position);
+                        continue;
+                    }
+
+                    if (patch_i != patch_dst_i) {
+                        cz2vm->label_patches.data[patch_dst_i] = *patch;
+                    }
+                    ++patch_dst_i;
+                }
+                cz2vm->label_patches.count = patch_dst_i;
             } break;
 
             case cz_inst_Jmp: {
+                UTILS_ASSERT(cz2vm->scopes.count > 0);
                 UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 1);
 
                 cz2vm_object_t object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
                 UTILS_ASSERT(object.type == cz_type_Bool);
 
+                int off = cz2vm->sp - object.prev_sp;
+                vm_inst_pop(code, vm_reg_Int, 0, off);
+                cz2vm->sp -= off;
+
+                size_t jmp_position = VM_JMP_IF(code);
+
                 if (inst->jmp.type == cz_inst_jmp_Label) {
+                    UTILS_ASSERT(cz2vm_stack_count(cz2vm) == 0);
+
+                    int label_i = (int)(cz2vm->labels.count) - 1;
+                    int scope_i = (int)(cz2vm->scopes.count) - 1;
+                    cz2vm_scope_t *scope = NULL;
+                    cz2vm_label_t *label = NULL;
+
+                    for (; scope_i >= 0; --scope_i) {
+                        scope = cz2vm->scopes.data + scope_i;
+
+                        for (; label_i >= 0 && label_i >= (int)scope->label_offset; --label_i) {
+                            label = cz2vm->labels.data + label_i;
+
+                            if (label->id == inst->label)
+                                goto found_label;
+                        }
+
+                        if (label_i == -1)
+                            break;
+                    }
+
+                    UTILS_STRETCHY_PUSH(cz2vm->label_patches, (cz2vm_label_patch_t) {
+                        .scope_id     = cz2vm->scopes.data[cz2vm->scopes.count - 1].id,
+                        .label_id     = inst->jmp.label,
+                        .jmp_position = jmp_position,
+                    });
+
+                    break;
+
+                found_label:
+                    UTILS_ASSERT(scope->eval_stack_bottom == cz2vm->sp);
+
+                    vm_link(code, jmp_position, label->position);
                 }
                 else if (inst->jmp.type == cz_inst_jmp_ScopeEnd) {
+                    unsigned scope_i = 0;
+                    cz2vm_scope_t *scope = NULL;
+
+                    for (; scope_i < cz2vm->scopes.count; ++scope_i) {
+                        scope = cz2vm->scopes.data + scope_i;
+
+                        if (scope->id == inst->jmp.scope)
+                            break;
+                    }
+
+                    UTILS_ASSERT(scope_i != cz2vm->scopes.count);
+
+                    // TODO: Do the result stack check
+                    
+                    UTILS_STRETCHY_PUSH(cz2vm->scope_patches, (cz2vm_scope_patch_t) {
+                        .scope_id     = scope->id,
+                        .jmp_position = jmp_position,
+                    });
                 }
             } break;
 
@@ -532,6 +653,7 @@ main(void)
         CZ_IMM_CHAR(cz, 'A');
         CZ_PRINT(cz);
 
+        CZ_IMM_BOOL(cz, true);
         UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
             .type = cz_inst_Jmp,
             .jmp  = {
