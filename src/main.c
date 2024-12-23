@@ -9,6 +9,7 @@ typedef enum
     cz_inst_ScopeEnd,
     cz_inst_Label,
     cz_inst_Jmp,
+    cz_inst_Brk,
     cz_inst_Print,
     cz_inst_Cow,
 } cz_inst_type_t;
@@ -37,12 +38,6 @@ typedef enum
     cz_inst_op_NE,
 } cz_inst_op_type_t;
 
-typedef enum
-{
-    cz_inst_jmp_Label,
-    cz_inst_jmp_ScopeEnd,
-} cz_inst_jmp_type_t;
-
 typedef unsigned cz_scope_t;
 typedef unsigned cz_label_t;
 
@@ -69,12 +64,12 @@ typedef struct
         cz_label_t label;
 
         struct {
-            cz_inst_jmp_type_t type;
-            union {
-                cz_scope_t scope;
-                cz_label_t label;
-            };
+            cz_label_t label;
         } jmp;
+
+        struct {
+            cz_scope_t scope;
+        } brk;
     };
 } cz_inst_t;
 
@@ -165,6 +160,7 @@ cz_inst_type_name(cz_inst_type_t inst_type)
         case cz_inst_ScopeEnd:   return "scope_end";
         case cz_inst_Label:      return "label";
         case cz_inst_Jmp:        return "jmp";
+        case cz_inst_Brk:        return "brk";
         case cz_inst_Print:      return "print";
         case cz_inst_Cow:        return "cow";
     }
@@ -186,6 +182,7 @@ typedef struct
     cz_scope_t id;
     unsigned eval_stack_bottom;
     unsigned label_offset;
+    size_t   sp;
 
     bool is_result_set;
     unsigned result_offset;
@@ -408,6 +405,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
                     .id                = inst->scope,
                     .eval_stack_bottom = cz2vm->eval_stack.count,
                     .label_offset      = cz2vm->labels.count,
+                    .sp                = cz2vm->sp,
                 });
             } break;
 
@@ -490,61 +488,68 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
 
                 size_t jmp_position = VM_JMP_IF(code);
 
-                if (inst->jmp.type == cz_inst_jmp_Label) {
-                    UTILS_ASSERT(cz2vm_stack_count(cz2vm) == 0);
+                UTILS_ASSERT(cz2vm_stack_count(cz2vm) == 0);
 
-                    int label_i = (int)(cz2vm->labels.count) - 1;
-                    int scope_i = (int)(cz2vm->scopes.count) - 1;
-                    cz2vm_scope_t *scope = NULL;
-                    cz2vm_label_t *label = NULL;
+                int label_i = (int)(cz2vm->labels.count) - 1;
+                int scope_i = (int)(cz2vm->scopes.count) - 1;
+                cz2vm_scope_t *scope = NULL;
+                cz2vm_label_t *label = NULL;
 
-                    for (; scope_i >= 0; --scope_i) {
-                        scope = cz2vm->scopes.data + scope_i;
+                for (; scope_i >= 0; --scope_i) {
+                    scope = cz2vm->scopes.data + scope_i;
 
-                        for (; label_i >= 0 && label_i >= (int)scope->label_offset; --label_i) {
-                            label = cz2vm->labels.data + label_i;
+                    for (; label_i >= 0 && label_i >= (int)scope->label_offset; --label_i) {
+                        label = cz2vm->labels.data + label_i;
 
-                            if (label->id == inst->label)
-                                goto found_label;
-                        }
-
-                        if (label_i == -1)
-                            break;
+                        if (label->id == inst->label)
+                            goto found_label;
                     }
 
-                    UTILS_STRETCHY_PUSH(cz2vm->label_patches, (cz2vm_label_patch_t) {
-                        .scope_id     = cz2vm->scopes.data[cz2vm->scopes.count - 1].id,
-                        .label_id     = inst->jmp.label,
-                        .jmp_position = jmp_position,
-                    });
-
-                    break;
-
-                found_label:
-                    UTILS_ASSERT(scope->eval_stack_bottom == cz2vm->sp);
-
-                    vm_link(code, jmp_position, label->position);
+                    if (label_i == -1)
+                        break;
                 }
-                else if (inst->jmp.type == cz_inst_jmp_ScopeEnd) {
-                    unsigned scope_i = 0;
-                    cz2vm_scope_t *scope = NULL;
 
-                    for (; scope_i < cz2vm->scopes.count; ++scope_i) {
-                        scope = cz2vm->scopes.data + scope_i;
+                UTILS_STRETCHY_PUSH(cz2vm->label_patches, (cz2vm_label_patch_t) {
+                    .scope_id     = cz2vm->scopes.data[cz2vm->scopes.count - 1].id,
+                    .label_id     = inst->jmp.label,
+                    .jmp_position = jmp_position,
+                });
 
-                        if (scope->id == inst->jmp.scope)
-                            break;
-                    }
+                break;
 
-                    UTILS_ASSERT(scope_i != cz2vm->scopes.count);
+            found_label:
+                UTILS_ASSERT(scope->eval_stack_bottom == cz2vm->sp);
 
-                    // TODO: Do the result stack check
-                    
-                    UTILS_STRETCHY_PUSH(cz2vm->scope_patches, (cz2vm_scope_patch_t) {
-                        .scope_id     = scope->id,
-                        .jmp_position = jmp_position,
-                    });
+                vm_link(code, jmp_position, label->position);
+            } break;
+
+            case cz_inst_Brk: {
+                UTILS_ASSERT(cz2vm->scopes.count > 0);
+
+                VM_IMM_INT(code, 0, 1);
+                size_t jmp_position = VM_JMP_IF(code);
+
+                unsigned scope_i = 0;
+                cz2vm_scope_t *scope = NULL;
+
+                for (; scope_i < cz2vm->scopes.count; ++scope_i) {
+                    scope = cz2vm->scopes.data + scope_i;
+
+                    if (scope->id == inst->brk.scope)
+                        break;
                 }
+
+                UTILS_ASSERT(scope_i != cz2vm->scopes.count);
+
+                // TODO: Do the result stack check
+
+                cz2vm->eval_stack.count = scope->eval_stack_bottom;
+                cz2vm->sp               = scope->sp;
+
+                UTILS_STRETCHY_PUSH(cz2vm->scope_patches, (cz2vm_scope_patch_t) {
+                    .scope_id     = scope->id,
+                    .jmp_position = jmp_position,
+                });
             } break;
 
             case cz_inst_Print: {
@@ -636,7 +641,7 @@ main(void)
         cz_scope_t label = ++(cz->last_label);
 
         CZ_IMM_INT(cz, 1);
-        CZ_IMM_INT(cz, 2);
+        CZ_IMM_INT(cz, 100);
         CZ_OP(cz, Mul);
 
         CZ_IMM_INT(cz, 65);
@@ -645,7 +650,6 @@ main(void)
         UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
             .type = cz_inst_Jmp,
             .jmp  = {
-                .type  = cz_inst_jmp_Label,
                 .label = label,
             },
         });
@@ -653,12 +657,12 @@ main(void)
         CZ_IMM_CHAR(cz, 'A');
         CZ_PRINT(cz);
 
-        CZ_IMM_BOOL(cz, true);
+        CZ_IMM_FLOAT(cz, 6.66f);
+
         UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
-            .type = cz_inst_Jmp,
-            .jmp  = {
-                .type  = cz_inst_jmp_ScopeEnd,
-                .label = scope,
+            .type = cz_inst_Brk,
+            .brk  = {
+                .scope = scope,
             },
         });
 
@@ -669,12 +673,15 @@ main(void)
 
         CZ_IMM_CHAR(cz, 'B');
         CZ_PRINT(cz);
-        
+
+        CZ_IMM_INT(cz, 123);
     }
     UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
         .type  = cz_inst_ScopeEnd,
         .scope = scope,
     });
+
+    CZ_PRINT(cz);
 
     CZ_COW(cz);
 
