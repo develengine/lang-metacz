@@ -82,73 +82,104 @@ typedef struct
     cz_label_t last_label;
 } cz_t;
 
+void
+cz_emit_inst(cz_t *cz, cz_inst_t inst)
+{
+    UTILS_STRETCHY_PUSH(cz->code, inst);
+}
+
 #define CZ_IMM_INT(cz, val) \
-do { \
-    UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) { \
+    cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Imm, \
         .imm  = { \
             .type   = cz_type_Int, \
             .as_int = val, \
         }, \
-    }); \
-} while (0)
+    })
 
 #define CZ_IMM_FLOAT(cz, val) \
-do { \
-    UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) { \
+    cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Imm, \
         .imm  = { \
             .type     = cz_type_Float, \
             .as_float = val, \
         }, \
-    }); \
-} while (0)
+    })
 
 #define CZ_IMM_BOOL(cz, val) \
-do { \
-    UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) { \
+    cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Imm, \
         .imm  = { \
             .type    = cz_type_Bool, \
             .as_bool = val, \
         }, \
-    }); \
-} while (0)
+    })
 
 #define CZ_IMM_CHAR(cz, val) \
-do { \
-    UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) { \
+    cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Imm, \
         .imm  = { \
             .type    = cz_type_Char, \
             .as_char = val, \
         }, \
-    }); \
-} while (0)
+    })
 
 #define CZ_OP(cz, op_sf) \
-do { \
-    UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) { \
+    cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Op, \
         .op   = { \
             .type = cz_inst_op_##op_sf, \
         }, \
-    }); \
-} while (0)
+    })
 
 #define CZ_PRINT(cz) \
-do { \
-    UTILS_STRETCHY_PUSH(cz->code, (cz_inst_t) { \
+    cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Print, \
-    }); \
-} while (0)
+    })
 
 #define CZ_COW(cz) \
-do { \
-    UTILS_STRETCHY_PUSH(cz->code, (cz_inst_t) { \
+    cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Cow, \
-    }); \
-} while (0)
+    })
+
+#define CZ_SCOPE_BEGIN(cz) \
+( \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type  = cz_inst_ScopeBegin, \
+        .scope = ++((cz)->last_label), \
+    }), \
+    (cz)->last_label \
+)
+
+#define CZ_SCOPE_END(cz, scope_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type  = cz_inst_ScopeEnd, \
+        .scope = (scope_id), \
+    })
+
+#define CZ_JMP(cz, label_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Jmp, \
+        .jmp  = { \
+            .label = (label_id), \
+        }, \
+    })
+
+#define CZ_BRK(cz, scope_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Brk, \
+        .brk  = { \
+            .scope = (scope_id), \
+        }, \
+    })
+
+#define CZ_LABEL_MAKE(cz) (++((cz)->last_label))
+
+#define CZ_LABEL_SET(cz, label_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type  = cz_inst_Label, \
+        .label = (label_id), \
+    })
 
 static inline const char *
 cz_inst_type_name(cz_inst_type_t inst_type)
@@ -665,55 +696,32 @@ main(void)
     cz_t cz_ctx = {0};
     cz_t *cz = &cz_ctx;
 
-    cz_scope_t scope = ++(cz->last_scope);
-
-    UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
-        .type  = cz_inst_ScopeBegin,
-        .scope = scope,
-    });
+    cz_scope_t scope = CZ_SCOPE_BEGIN(cz);
     {
-        cz_scope_t label = ++(cz->last_label);
+        cz_label_t label = CZ_LABEL_MAKE(cz);
 
         CZ_IMM_INT(cz, 1);
-        CZ_IMM_INT(cz, 100);
+        CZ_IMM_INT(cz, 2);
         CZ_OP(cz, Mul);
 
         CZ_IMM_INT(cz, 65);
         CZ_OP(cz, LT);
 
-        UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
-            .type = cz_inst_Jmp,
-            .jmp  = {
-                .label = label,
-            },
-        });
+        CZ_JMP(cz, label);
+            CZ_IMM_CHAR(cz, 'A');
+            CZ_PRINT(cz);
 
-        CZ_IMM_CHAR(cz, 'A');
-        CZ_PRINT(cz);
+            CZ_IMM_FLOAT(cz, 6.66f);
 
-        CZ_IMM_FLOAT(cz, 6.66f);
+            CZ_BRK(cz, scope);
 
-        UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
-            .type = cz_inst_Brk,
-            .brk  = {
-                .scope = scope,
-            },
-        });
+        CZ_LABEL_SET(cz, label);
+            CZ_IMM_CHAR(cz, 'B');
+            CZ_PRINT(cz);
 
-        UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
-            .type  = cz_inst_Label,
-            .label = label,
-        });
-
-        CZ_IMM_CHAR(cz, 'B');
-        CZ_PRINT(cz);
-
-        CZ_IMM_INT(cz, 123);
+            CZ_IMM_FLOAT(cz, 123.4f);
     }
-    UTILS_STRETCHY_PUSH((cz)->code, (cz_inst_t) {
-        .type  = cz_inst_ScopeEnd,
-        .scope = scope,
-    });
+    CZ_SCOPE_END(cz, scope);
 
     CZ_PRINT(cz);
 
