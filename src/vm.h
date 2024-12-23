@@ -29,6 +29,7 @@ typedef enum
 
 typedef enum
 {
+    vm_reg_None,
     vm_reg_Int,
     vm_reg_Float,
     vm_reg_Ptr,
@@ -195,6 +196,15 @@ do { \
     (void)VM_MEM_BUF_PUSH(code, char, __VA_ARGS__); \
 } while (0)
 
+#define VM_IMM_DP(code, ...) \
+do { \
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_LoadImm); \
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_reg_t, (vm_inst_reg_t) { \
+        .type  = vm_reg_DP, \
+    }); \
+    (void)VM_MEM_BUF_PUSH(code, size_t, __VA_ARGS__); \
+} while (0)
+
 static inline void
 vm_inst_op(vm_mem_buf_t *code, vm_type_type_t type, vm_op_type_t op)
 {
@@ -264,6 +274,32 @@ vm_inst_pop(vm_mem_buf_t *code, vm_reg_type_t reg_type, unsigned ind, int off)
 #define VM_POP(code, reg_sf, ind, ...) \
     vm_inst_pop(code, vm_reg_##reg_sf, ind, __VA_ARGS__)
 
+static inline void
+vm_inst_store(vm_mem_buf_t *code, vm_reg_type_t reg_type, unsigned ind)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_Store);
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_reg_t, (vm_inst_reg_t) {
+        .type = reg_type,
+        .index = ind,
+    });
+}
+
+static inline void
+vm_inst_load(vm_mem_buf_t *code, vm_reg_type_t reg_type, unsigned ind)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_Load);
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_reg_t, (vm_inst_reg_t) {
+        .type = reg_type,
+        .index = ind,
+    });
+}
+
+#define VM_STORE(code, reg_sf, ind) \
+    vm_inst_store(code, vm_reg_##reg_sf, ind)
+
+#define VM_LOAD(code, reg_sf, ind) \
+    vm_inst_load(code, vm_reg_##reg_sf, ind)
+
 
 #endif // VM_H_
 
@@ -291,6 +327,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                 vm_inst_reg_t reg = VM_MEM_GET(code->data, &regs.ip, vm_inst_reg_t);
 
                 switch (reg.type) {
+                    case vm_reg_None:
+                        break;
                     case vm_reg_Int:
                         regs.ints[reg.index] = VM_MEM_GET(code->data, &regs.ip, int);
                         break;
@@ -327,6 +365,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                 vm_inst_reg_t reg = VM_MEM_GET(code->data, &regs.ip, vm_inst_reg_t);
 
                 switch (reg.type) {
+                    case vm_reg_None:
+                        break;
                     case vm_reg_Int:
                         regs.ints[reg.index] = *(int*)(data + regs.dp);
                         break;
@@ -355,6 +395,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                 vm_inst_reg_t reg = VM_MEM_GET(code->data, &regs.ip, vm_inst_reg_t);
 
                 switch (reg.type) {
+                    case vm_reg_None:
+                        break;
                     case vm_reg_Int:
                         *(int*)(data + regs.dp) = regs.ints[reg.index];
                         break;
@@ -384,6 +426,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                 size_t off = (size_t)VM_MEM_GET(code->data, &regs.ip, int);
 
                 switch (reg.type) {
+                    case vm_reg_None:
+                        break;
                     case vm_reg_Int:
                         regs.ints[reg.index] = *(int*)(data + regs.sp);
                         break;
@@ -417,6 +461,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                 regs.sp += off;
 
                 switch (reg.type) {
+                    case vm_reg_None:
+                        break;
                     case vm_reg_Int:
                         *(int*)(data + regs.sp) = regs.ints[reg.index];
                         break;
@@ -646,6 +692,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                 vm_inst_reg_t reg = VM_MEM_GET(code->data, &regs.ip, vm_inst_reg_t);
 
                 switch (reg.type) {
+                    case vm_reg_None:
+                        printf("None\n");
+                        break;
                     case vm_reg_Int:
                         printf("%d\n", regs.ints[reg.index]);
                         break;

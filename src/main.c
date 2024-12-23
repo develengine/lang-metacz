@@ -3,6 +3,7 @@
 
 typedef enum
 {
+    cz_inst_Halt,
     cz_inst_Imm,
     cz_inst_Op,
     cz_inst_ScopeBegin,
@@ -10,6 +11,9 @@ typedef enum
     cz_inst_Label,
     cz_inst_Jmp,
     cz_inst_Brk,
+    cz_inst_Var,
+    cz_inst_Load,
+    cz_inst_Store,
     cz_inst_Print,
     cz_inst_Cow,
 } cz_inst_type_t;
@@ -40,6 +44,7 @@ typedef enum
 
 typedef unsigned cz_scope_t;
 typedef unsigned cz_label_t;
+typedef unsigned cz_var_t;
 
 typedef struct
 {
@@ -70,6 +75,19 @@ typedef struct
         struct {
             cz_scope_t scope;
         } brk;
+
+        struct {
+            cz_var_t var;
+            cz_type_t type;
+        } var;
+
+        struct {
+            cz_var_t var;
+        } load;
+
+        struct {
+            cz_var_t var;
+        } store;
     };
 } cz_inst_t;
 
@@ -80,6 +98,7 @@ typedef struct
     cz_code_t code;
     cz_scope_t last_scope;
     cz_label_t last_label;
+    cz_var_t   last_var;
 } cz_t;
 
 void
@@ -87,6 +106,11 @@ cz_emit_inst(cz_t *cz, cz_inst_t inst)
 {
     UTILS_STRETCHY_PUSH(cz->code, inst);
 }
+
+#define CZ_HALT(cz) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Halt, \
+    })
 
 #define CZ_IMM_INT(cz, val) \
     cz_emit_inst((cz), (cz_inst_t) { \
@@ -181,10 +205,39 @@ cz_emit_inst(cz_t *cz, cz_inst_t inst)
         .label = (label_id), \
     })
 
+#define CZ_VAR(cz, type_sf) \
+( \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type  = cz_inst_Var, \
+        .var   = { \
+            .var  = ++((cz)->last_var), \
+            .type = cz_type_##type_sf, \
+        }, \
+    }), \
+    (cz)->last_var \
+)
+
+#define CZ_LOAD(cz, var_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Load, \
+        .load = { \
+            .var = (var_id), \
+        }, \
+    })
+
+#define CZ_STORE(cz, var_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Store, \
+        .load = { \
+            .var = (var_id), \
+        }, \
+    })
+
 static inline const char *
 cz_inst_type_name(cz_inst_type_t inst_type)
 {
     switch (inst_type) {
+        case cz_inst_Halt:       return "halt";
         case cz_inst_Imm:        return "imm";
         case cz_inst_Op:         return "op";
         case cz_inst_ScopeBegin: return "scope_begin";
@@ -192,6 +245,9 @@ cz_inst_type_name(cz_inst_type_t inst_type)
         case cz_inst_Label:      return "label";
         case cz_inst_Jmp:        return "jmp";
         case cz_inst_Brk:        return "brk";
+        case cz_inst_Var:        return "var";
+        case cz_inst_Load:       return "load";
+        case cz_inst_Store:      return "store";
         case cz_inst_Print:      return "print";
         case cz_inst_Cow:        return "cow";
     }
@@ -250,6 +306,16 @@ typedef UTILS_STRETCHY_T (cz2vm_scope_patch_t, unsigned) cz2vm_scope_patches_t;
 
 typedef struct
 {
+    cz_var_t id;
+    cz_type_t type;
+    size_t offset;
+    size_t size;
+} cz2vm_var_t;
+
+typedef UTILS_STRETCHY_T (cz2vm_var_t, unsigned) cz2vm_vars_t;
+
+typedef struct
+{
     cz2vm_objects_t eval_stack;
     size_t sp;
 
@@ -259,6 +325,8 @@ typedef struct
     cz2vm_label_patches_t label_patches;
     cz2vm_scope_patches_t scope_patches;
     cz2vm_objects_t results; // TODO: Have result segments fold when they are no longer needed
+
+    cz2vm_vars_t vars;
 } cz2vm_t;
 
 static inline size_t
@@ -390,13 +458,40 @@ cz2vm_check_result(cz2vm_t *cz2vm, cz2vm_scope_t *scope)
     return true; // TODO: WTF IS THIS
 }
 
+static inline cz2vm_var_t *
+cz2vm_find_var(cz2vm_t *cz2vm, cz_var_t var_id)
+{
+    unsigned var_i = 0;
+    cz2vm_var_t *var = NULL;
+
+    for (; var_i < cz2vm->vars.count; ++var_i) {
+        var = cz2vm->vars.data + var_i;
+
+        if (var->id == var_id)
+            break;
+    }
+
+    UTILS_ASSERT(var_i != cz2vm->vars.count);
+
+    return var;
+}
+
 static void
 cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
 {
+    VM_PUSH(code, None, 0, 0xDEADC0DE);
+    size_t eval_stack_offset_position = code->count - sizeof(int);
+
+    size_t variable_offset = 0;
+
     UTILS_STRETCHY_FOR(cz->code, cz_inst_t, inst) {
         printf("inst type: '%s'\n", cz_inst_type_name(inst->type));
 
         switch (inst->type) {
+            case cz_inst_Halt: {
+                VM_HALT(code);
+            } break;
+
             case cz_inst_Imm: {
                 switch (inst->imm.type) {
                     case cz_type_Int:   VM_IMM_INT(   code, 0, inst->imm.as_int   ); break;
@@ -617,6 +712,55 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
                 });
             } break;
 
+            case cz_inst_Var: {
+                cz_type_t type = inst->var.type;
+
+                vm_align(&variable_offset, cz2vm_alignment(type));
+
+                cz2vm_var_t var = {
+                    .id     = inst->var.var,
+                    .type   = type,
+                    .offset = variable_offset,
+                    .size   = cz2vm_size(type),
+                };
+
+                UTILS_STRETCHY_PUSH(cz2vm->vars, var);
+
+                variable_offset += var.size;
+            } break;
+
+            case cz_inst_Load: {
+                cz2vm_var_t *var = cz2vm_find_var(cz2vm, inst->load.var);
+                UTILS_ASSERT(var);
+
+                vm_reg_type_t  vm_reg  = cz2vm_vm_reg(var->type);
+                vm_type_type_t vm_type = cz2vm_vm_type(var->type);
+
+                VM_IMM_DP(code, var->offset);
+                vm_inst_load(code, vm_reg, 0);
+                cz2vm_push(cz2vm, code, var->type, vm_type, vm_reg, 0);
+            } break;
+
+            case cz_inst_Store: {
+                UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 1);
+
+                cz2vm_object_t object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
+
+                cz2vm_var_t *var = cz2vm_find_var(cz2vm, inst->load.var);
+                UTILS_ASSERT(var);
+
+                UTILS_ASSERT(var->type == object.type);
+
+                vm_reg_type_t vm_reg = cz2vm_vm_reg(var->type);
+
+                int off = cz2vm->sp - object.prev_sp;
+                vm_inst_pop(code, vm_reg, 0, off);
+                cz2vm->sp -= off;
+
+                VM_IMM_DP(code, var->offset);
+                vm_inst_store(code, vm_reg, 0);
+            } break;
+
             case cz_inst_Print: {
                 UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 1);
 
@@ -635,6 +779,12 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
             } break;
         }
     }
+
+    vm_align(&variable_offset, 16); // TODO: Optimize based on the computation footprint
+
+    printf("variable_offset = %d\n", (int)variable_offset);
+
+    *(int*)(code->data + eval_stack_offset_position) = (int)variable_offset;
 }
 
 void
@@ -690,9 +840,10 @@ main(void)
     CZ_PRINT(cz);
 
     CZ_COW(cz);
+    CZ_HALT(cz);
 
     cz_compile_to_vm(cz, c);
-#else
+#elif 0
     cz_t cz_ctx = {0};
     cz_t *cz = &cz_ctx;
 
@@ -701,7 +852,7 @@ main(void)
         cz_label_t label = CZ_LABEL_MAKE(cz);
 
         CZ_IMM_INT(cz, 1);
-        CZ_IMM_INT(cz, 2);
+        CZ_IMM_INT(cz, 100);
         CZ_OP(cz, Mul);
 
         CZ_IMM_INT(cz, 65);
@@ -726,6 +877,50 @@ main(void)
     CZ_PRINT(cz);
 
     CZ_COW(cz);
+    CZ_HALT(cz);
+
+    cz_compile_to_vm(cz, c);
+#else
+    cz_t cz_ctx = {0};
+    cz_t *cz = &cz_ctx;
+
+    cz_var_t var_1 = CZ_VAR(cz, Int);
+    CZ_IMM_INT(cz, 1);
+    CZ_STORE(cz, var_1);
+
+    cz_scope_t scope = CZ_SCOPE_BEGIN(cz);
+    {
+        cz_label_t l_start = CZ_LABEL_MAKE(cz);
+        CZ_LABEL_SET(cz, l_start);
+
+        CZ_LOAD(cz, var_1);
+        CZ_PRINT(cz);
+
+        CZ_LOAD(cz, var_1);
+        CZ_IMM_INT(cz, 123);
+
+        CZ_OP(cz, GT);
+
+        cz_label_t l_end = CZ_LABEL_MAKE(cz);
+        CZ_JMP(cz, l_end);
+
+        CZ_LOAD(cz, var_1);
+        CZ_IMM_INT(cz, 2);
+        CZ_OP(cz, Mul);
+
+        CZ_STORE(cz, var_1);
+
+        CZ_IMM_BOOL(cz, true);
+        CZ_JMP(cz, l_start);
+
+        CZ_LABEL_SET(cz, l_end);
+
+        CZ_BRK(cz, scope);
+    }
+    CZ_SCOPE_END(cz, scope);
+
+    CZ_COW(cz);
+    CZ_HALT(cz);
 
     cz_compile_to_vm(cz, c);
 #endif
