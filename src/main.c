@@ -182,11 +182,12 @@ typedef struct
     cz_scope_t id;
     unsigned eval_stack_bottom;
     unsigned label_offset;
-    size_t   sp;
+    size_t sp_bottom;
 
     bool is_result_set;
     unsigned result_offset;
     unsigned result_count;
+    unsigned result_sp;
 } cz2vm_scope_t;
 
 typedef UTILS_STRETCHY_T (cz2vm_scope_t, unsigned) cz2vm_scopes_t;
@@ -226,6 +227,7 @@ typedef struct
     cz2vm_labels_t  labels;
     cz2vm_label_patches_t label_patches;
     cz2vm_scope_patches_t scope_patches;
+    cz2vm_objects_t results; // TODO: Have result segments fold when they are no longer needed
 } cz2vm_t;
 
 static inline size_t
@@ -338,9 +340,23 @@ cz2vm_stack_count(cz2vm_t *cz2vm)
 }
 
 static inline bool
-cz2vm_check_result(cz2vm_t *cz2vm)
+cz2vm_check_result(cz2vm_t *cz2vm, cz2vm_scope_t *scope)
 {
-    return false;
+    unsigned result_count = cz2vm->eval_stack.count - scope->eval_stack_bottom;
+
+    UTILS_ASSERT(scope->result_count == result_count);
+    UTILS_ASSERT(scope->result_sp    == cz2vm->sp);
+
+    for (unsigned i = 0; i < result_count; ++i) {
+        cz2vm_object_t new_result = cz2vm->eval_stack.data[scope->eval_stack_bottom + i];
+        cz2vm_object_t set_result = cz2vm->results.data[scope->result_offset + i];
+
+        UTILS_ASSERT(new_result.type    == set_result.type);
+        UTILS_ASSERT(new_result.prev_sp == set_result.prev_sp);
+        UTILS_ASSERT(new_result.size    == set_result.size);
+    }
+
+    return true; // TODO: WTF IS THIS
 }
 
 static void
@@ -405,7 +421,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
                     .id                = inst->scope,
                     .eval_stack_bottom = cz2vm->eval_stack.count,
                     .label_offset      = cz2vm->labels.count,
-                    .sp                = cz2vm->sp,
+                    .sp_bottom         = cz2vm->sp,
                 });
             } break;
 
@@ -416,7 +432,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
                 UTILS_ASSERT(scope.id == inst->scope);
 
                 if (scope.is_result_set) {
-                    UTILS_ASSERT(cz2vm_check_result(cz2vm) == true);
+                    UTILS_ASSERT(cz2vm_check_result(cz2vm, &scope) == true);
                 }
 
                 unsigned patch_dst_i = 0;
@@ -541,10 +557,28 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
 
                 UTILS_ASSERT(scope_i != cz2vm->scopes.count);
 
-                // TODO: Do the result stack check
+                if (scope->is_result_set) {
+                    UTILS_ASSERT(cz2vm_check_result(cz2vm, scope) == true);
+                }
+                else {
+                    unsigned result_count = cz2vm->eval_stack.count - scope->eval_stack_bottom;
+
+                    scope->is_result_set = true;
+                    scope->result_offset = cz2vm->results.count;
+                    scope->result_count  = result_count;
+                    scope->result_sp     = cz2vm->sp;
+
+                    UTILS_STRETCHY_RESERVE(cz2vm->results, result_count);
+
+                    for (unsigned i = 0; i < result_count; ++i) {
+                        cz2vm->results.data[scope->result_offset + i] = cz2vm->eval_stack.data[scope->eval_stack_bottom + i];
+                    }
+
+                    cz2vm->results.count += result_count;
+                }
 
                 cz2vm->eval_stack.count = scope->eval_stack_bottom;
-                cz2vm->sp               = scope->sp;
+                cz2vm->sp               = scope->sp_bottom;
 
                 UTILS_STRETCHY_PUSH(cz2vm->scope_patches, (cz2vm_scope_patch_t) {
                     .scope_id     = scope->id,
