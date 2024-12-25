@@ -44,6 +44,7 @@ typedef enum
 typedef unsigned cz_scope_t;
 typedef unsigned cz_label_t;
 typedef unsigned cz_var_t;
+typedef unsigned cz_func_t;
 
 typedef struct
 {
@@ -102,12 +103,27 @@ typedef UTILS_STRETCHY_T (cz_variable_t, unsigned) cz_variables_t;
 
 typedef struct
 {
+    cz_func_t func;
+
+    unsigned code_offset;
+    unsigned code_count;
+
+    unsigned variable_offset;
+    unsigned variable_count;
+} cz_function_t;
+
+typedef UTILS_STRETCHY_T (cz_function_t, unsigned) cz_functions_t;
+
+typedef struct
+{
     cz_code_t      code;
     cz_variables_t variables;
+    cz_functions_t functions;
 
     cz_scope_t last_scope;
     cz_label_t last_label;
     cz_var_t   last_var;
+    cz_func_t  last_func;
 } cz_t;
 
 void
@@ -124,6 +140,34 @@ cz_add_variable(cz_t *cz, cz_var_t var, cz_type_t type)
         .type = type,
     });
 }
+
+void
+cz_begin_function(cz_t *cz, cz_func_t func)
+{
+    UTILS_STRETCHY_PUSH(cz->functions, (cz_function_t) {
+        .func            = func,
+        .code_offset     = cz->code.count,
+        .variable_offset = cz->variables.count,
+    });
+}
+
+void
+cz_end_function(cz_t *cz, cz_func_t func)
+{
+    UTILS_ASSERT(cz->functions.count > 0);
+
+    cz_function_t *function = cz->functions.data + cz->functions.count - 1;
+
+    UTILS_ASSERT(function->func == func);
+
+    function->code_count     = cz->code.count      - function->code_offset;
+    function->variable_count = cz->variables.count - function->variable_offset;
+}
+
+#define CZ_FUNC(cz, func_ident) \
+    for (cz_func_t func_ident = ++((cz)->last_func), __done_##__LINE__ = (cz_begin_function((cz), func_ident), false); \
+         !__done_##__LINE__; \
+         cz_end_function((cz), func_ident), __done_##__LINE__ = true)
 
 #define CZ_HALT(cz) \
     cz_emit_inst((cz), (cz_inst_t) { \
@@ -198,6 +242,11 @@ cz_add_variable(cz_t *cz, cz_var_t var, cz_type_t type)
         .type  = cz_inst_ScopeEnd, \
         .scope = (scope_id), \
     })
+
+#define CZ_SCOPE(cz, scope_ident) \
+    for (cz_scope_t scope_ident = CZ_SCOPE_BEGIN(cz), __done_##__LINE__ = false; \
+         !__done_##__LINE__; \
+         CZ_SCOPE_END(cz, scope_ident), __done_##__LINE__ = true)
 
 #define CZ_JMP(cz, label_id) \
     cz_emit_inst((cz), (cz_inst_t) { \
@@ -511,7 +560,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
         variable_offset += var.size;
     }
 
-    vm_align(&variable_offset, 16); // TODO: Don't do it like this
+    vm_align(&variable_offset, 16); // TODO: Don't do it like this. Allow for arbitrary offset.
 
     printf("variable_offset = %d\n", (int)variable_offset);
 
@@ -894,43 +943,43 @@ main(void)
     cz_t cz_ctx = {0};
     cz_t *cz = &cz_ctx;
 
-    cz_var_t var_1 = CZ_VAR(cz, Int);
-    CZ_IMM_INT(cz, 1);
-    CZ_STORE(cz, var_1);
-
-    cz_scope_t scope = CZ_SCOPE_BEGIN(cz);
-    {
-        cz_label_t l_start = CZ_LABEL_MAKE(cz);
-        CZ_LABEL_SET(cz, l_start);
-
-        CZ_LOAD(cz, var_1);
-        CZ_PRINT(cz);
-
-        CZ_LOAD(cz, var_1);
-        CZ_IMM_INT(cz, 123);
-
-        CZ_OP(cz, GT);
-
-        cz_label_t l_end = CZ_LABEL_MAKE(cz);
-        CZ_JMP(cz, l_end);
-
-        CZ_LOAD(cz, var_1);
-        CZ_IMM_INT(cz, 2);
-        CZ_OP(cz, Mul);
-
+    CZ_FUNC(cz, test_func) {
+        cz_var_t var_1 = CZ_VAR(cz, Int);
+        CZ_IMM_INT(cz, 1);
         CZ_STORE(cz, var_1);
 
-        CZ_IMM_BOOL(cz, true);
-        CZ_JMP(cz, l_start);
+        CZ_SCOPE(cz, scope) {
+            cz_label_t l_start = CZ_LABEL_MAKE(cz);
+            CZ_LABEL_SET(cz, l_start);
 
-        CZ_LABEL_SET(cz, l_end);
+            CZ_LOAD(cz, var_1);
+            CZ_PRINT(cz);
 
-        CZ_BRK(cz, scope);
+            CZ_LOAD(cz, var_1);
+            CZ_IMM_INT(cz, 123);
+
+            CZ_OP(cz, GT);
+
+            cz_label_t l_end = CZ_LABEL_MAKE(cz);
+            CZ_JMP(cz, l_end);
+
+            CZ_LOAD(cz, var_1);
+            CZ_IMM_INT(cz, 2);
+            CZ_OP(cz, Mul);
+
+            CZ_STORE(cz, var_1);
+
+            CZ_IMM_BOOL(cz, true);
+            CZ_JMP(cz, l_start);
+
+            CZ_LABEL_SET(cz, l_end);
+
+            CZ_BRK(cz, scope);
+        }
+
+        CZ_COW(cz);
+        CZ_HALT(cz);
     }
-    CZ_SCOPE_END(cz, scope);
-
-    CZ_COW(cz);
-    CZ_HALT(cz);
 
     cz_compile_to_vm(cz, c);
 #endif

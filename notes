@@ -1,6 +1,9 @@
 
-20:04 Redo the variables to use separate storage from the instrucitons.
-  - ET 0.5h
-  X 20:18 = 14 minutes.
+14:15 Function calling without arguments or results.
+  - ETA 2h
+
+NEXT:
+- Procedures that don't take any arguments nor return results.
+- Debug information for the instructions.
 
 
