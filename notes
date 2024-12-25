@@ -1,9 +1,12 @@
 
 14:15 Function calling without arguments or results.
   - ETA 2h
+  X 19:29 ~ 5.25h
 
 NEXT:
-- Procedures that don't take any arguments nor return results.
+- Remove the DP register and replace it with ptrs[0].
+- Create a VM_CALL_ALIGNMENT and have the code work with it.
+- Add bounds checks to the vm_run method.
 - Debug information for the instructions.
 
 

@@ -8,21 +8,18 @@ typedef enum
     vm_inst_Halt,     //
     vm_inst_Cow,      //
     vm_inst_Print,    // [reg]
-
     vm_inst_LoadImm,  // [reg] ...
     vm_inst_StoreImm, // [mem] ...
-
     vm_inst_Load,     // [reg]
     vm_inst_Store,    // [reg]
-
     vm_inst_Pop,      // [reg] [off]
     vm_inst_Push,     // [reg] [off]
-
     vm_inst_Op,       // [op]
     vm_inst_UnOp,     // [uop]
     vm_inst_ShiftL,   // [typ]
     vm_inst_ShiftR,   // [typ]
-
+    vm_inst_Call,     // [addr]
+    vm_inst_Ret,      //
     vm_inst_Jmp,      // [off]
     vm_inst_JmpIf,    // [off]
 } vm_inst_t;
@@ -35,6 +32,7 @@ typedef enum
     vm_reg_Ptr,
     vm_reg_Char,
     vm_reg_DP,
+    vm_reg_BP,
     vm_reg_SP,
     vm_reg_IP,
 } vm_reg_type_t;
@@ -110,6 +108,7 @@ typedef struct
     float  floats[2];
 
     size_t dp;
+    size_t bp;
     size_t sp;
     size_t ip;
 } vm_regs_t;
@@ -201,6 +200,15 @@ do { \
     (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_LoadImm); \
     (void)VM_MEM_BUF_PUSH(code, vm_inst_reg_t, (vm_inst_reg_t) { \
         .type  = vm_reg_DP, \
+    }); \
+    (void)VM_MEM_BUF_PUSH(code, size_t, __VA_ARGS__); \
+} while (0)
+
+#define VM_IMM_RP(code, ...) \
+do { \
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_LoadImm); \
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_reg_t, (vm_inst_reg_t) { \
+        .type  = vm_reg_RP, \
     }); \
     (void)VM_MEM_BUF_PUSH(code, size_t, __VA_ARGS__); \
 } while (0)
@@ -300,6 +308,18 @@ vm_inst_load(vm_mem_buf_t *code, vm_reg_type_t reg_type, unsigned ind)
 #define VM_LOAD(code, reg_sf, ind) \
     vm_inst_load(code, vm_reg_##reg_sf, ind)
 
+static inline void
+vm_inst_call(vm_mem_buf_t *code, size_t address)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_Call);
+    (void)VM_MEM_BUF_PUSH(code, size_t, address);
+}
+
+static inline void
+vm_inst_ret(vm_mem_buf_t *code)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_Ret);
+}
 
 #endif // VM_H_
 
@@ -319,9 +339,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
             case vm_inst_Halt:
                 return;
 
-            case vm_inst_Cow:
+            case vm_inst_Cow: {
                 printf("\\_/\n V\n");
-                break;
+            } break;
 
             case vm_inst_LoadImm: {
                 vm_inst_reg_t reg = VM_MEM_GET(code->data, &regs.ip, vm_inst_reg_t);
@@ -343,6 +363,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                         break;
                     case vm_reg_DP:
                         regs.dp = VM_MEM_GET(code->data, &regs.ip, size_t);
+                        break;
+                    case vm_reg_BP:
+                        regs.bp = VM_MEM_GET(code->data, &regs.ip, size_t);
                         break;
                     case vm_reg_SP:
                         regs.sp = VM_MEM_GET(code->data, &regs.ip, size_t);
@@ -368,25 +391,28 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                     case vm_reg_None:
                         break;
                     case vm_reg_Int:
-                        regs.ints[reg.index] = *(int*)(data + regs.dp);
+                        regs.ints[reg.index] = *(int*)(data + regs.bp + regs.dp);
                         break;
                     case vm_reg_Float:
-                        regs.floats[reg.index] = *(float*)(data + regs.dp);
+                        regs.floats[reg.index] = *(float*)(data + regs.bp + regs.dp);
                         break;
                     case vm_reg_Ptr:
-                        regs.ptrs[reg.index] = *(size_t*)(data + regs.dp);
+                        regs.ptrs[reg.index] = *(size_t*)(data + regs.bp + regs.dp);
                         break;
                     case vm_reg_Char:
-                        regs.chars[reg.index] = *(char*)(data + regs.dp);
+                        regs.chars[reg.index] = *(char*)(data + regs.bp + regs.dp);
                         break;
                     case vm_reg_DP:
-                        regs.dp = *(size_t*)(data + regs.dp);
+                        regs.dp = *(size_t*)(data + regs.bp + regs.dp);
+                        break;
+                    case vm_reg_BP:
+                        regs.bp = *(size_t*)(data + regs.bp + regs.dp);
                         break;
                     case vm_reg_SP:
-                        regs.sp = *(size_t*)(data + regs.dp);
+                        regs.sp = *(size_t*)(data + regs.bp + regs.dp);
                         break;
                     case vm_reg_IP:
-                        regs.ip = *(size_t*)(data + regs.dp);
+                        regs.ip = *(size_t*)(data + regs.bp + regs.dp);
                         break;
                 }
             } break;
@@ -398,25 +424,28 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                     case vm_reg_None:
                         break;
                     case vm_reg_Int:
-                        *(int*)(data + regs.dp) = regs.ints[reg.index];
+                        *(int*)(data + regs.bp + regs.dp) = regs.ints[reg.index];
                         break;
                     case vm_reg_Float:
-                        *(float*)(data + regs.dp) = regs.floats[reg.index];
+                        *(float*)(data + regs.bp + regs.dp) = regs.floats[reg.index];
                         break;
                     case vm_reg_Ptr:
-                        *(size_t*)(data + regs.dp) = regs.ptrs[reg.index];
+                        *(size_t*)(data + regs.bp + regs.dp) = regs.ptrs[reg.index];
                         break;
                     case vm_reg_Char:
-                        *(char*)(data + regs.dp) = regs.chars[reg.index];
+                        *(char*)(data + regs.bp + regs.dp) = regs.chars[reg.index];
                         break;
                     case vm_reg_DP:
-                        *(size_t*)(data + regs.dp) = regs.dp;
+                        *(size_t*)(data + regs.bp + regs.dp) = regs.dp;
+                        break;
+                    case vm_reg_BP:
+                        *(size_t*)(data + regs.bp + regs.dp) = regs.bp;
                         break;
                     case vm_reg_SP:
-                        *(size_t*)(data + regs.dp) = regs.sp;
+                        *(size_t*)(data + regs.bp + regs.dp) = regs.sp;
                         break;
                     case vm_reg_IP:
-                        *(size_t*)(data + regs.dp) = regs.ip;
+                        *(size_t*)(data + regs.bp + regs.dp) = regs.ip;
                         break;
                 }
             } break;
@@ -442,6 +471,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                         break;
                     case vm_reg_DP:
                         regs.dp = *(size_t*)(data + regs.sp);
+                        break;
+                    case vm_reg_BP:
+                        regs.bp = *(size_t*)(data + regs.sp);
                         break;
                     case vm_reg_SP:
                         regs.sp = *(size_t*)(data + regs.sp);
@@ -477,6 +509,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                         break;
                     case vm_reg_DP:
                         *(size_t*)(data + regs.sp) = regs.dp;
+                        break;
+                    case vm_reg_BP:
+                        *(size_t*)(data + regs.sp) = regs.bp;
                         break;
                     case vm_reg_SP:
                         *(size_t*)(data + regs.sp) = regs.sp;
@@ -688,6 +723,33 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                 }
             } break;
 
+            case vm_inst_Call: {
+                size_t address = VM_MEM_GET(code->data, &regs.ip, size_t);
+
+                size_t return_address = regs.ip;
+
+                regs.ip = address;
+
+                size_t new_bp = regs.sp;
+
+                // TODO: Maybe check alignment?
+
+                *(size_t*)(data + regs.sp) = regs.bp;
+                regs.sp += sizeof(size_t);
+                *(size_t*)(data + regs.sp) = return_address;
+                regs.sp += sizeof(size_t);
+
+                // TODO: Handle alignment correctly.
+
+                regs.bp = new_bp;
+            } break;
+
+            case vm_inst_Ret: {
+                regs.sp = regs.bp;
+                regs.ip = *(size_t*)(data + regs.bp + 1 * sizeof(size_t));
+                regs.bp = *(size_t*)(data + regs.bp + 0 * sizeof(size_t));
+            } break;
+
             case vm_inst_Print: {
                 vm_inst_reg_t reg = VM_MEM_GET(code->data, &regs.ip, vm_inst_reg_t);
 
@@ -709,6 +771,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, size_t data_size)
                         break;
                     case vm_reg_DP:
                         printf("%zu\n", regs.dp);
+                        break;
+                    case vm_reg_BP:
+                        printf("%zu\n", regs.bp);
                         break;
                     case vm_reg_SP:
                         printf("%zu\n", regs.sp);

@@ -27,6 +27,30 @@ utils_noop(void) { }
 typedef enum { false = 0, true = 1 } bool;
 
 
+static inline void *
+utils_hopeful_search(void *elems, size_t elem_size, size_t elem_count, size_t id_offset, unsigned id)
+{
+    unsigned char *elements = elems;
+    unsigned char *ptr;
+
+    if (id > 0 && id < (elem_count + 1)) {
+        ptr = elements + elem_size * (id - 1);
+
+        if (*(unsigned *)(ptr + id_offset) == id)
+            return ptr;
+    }
+
+    for (size_t i = 0; i < elem_count; ++i) {
+        ptr = elements + elem_size * i;
+
+        if (*(unsigned *)(ptr + id_offset) == id)
+            return ptr;
+    }
+
+    return NULL;
+}
+
+
 #define UTILS_STRETCHY_T(data_type, size_type) struct { data_type *data; size_type count, capacity; }
 
 #define UTILS_STRETCHY_FOR(dck, type, elem) \
@@ -77,5 +101,8 @@ do {                                                                            
         }                                                                               \
     }                                                                                   \
 } while (0)
+
+#define UTILS_STRETCHY_HOSE(stretchy, id_field_name, id) \
+    utils_hopeful_search((stretchy).data, sizeof((stretchy).data[0]), (stretchy).count, (unsigned char *)(&((stretchy).data)->id_field_name) - (unsigned char *)((stretchy).data), id)
 
 #endif // UTILS_H_

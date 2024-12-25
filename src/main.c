@@ -13,6 +13,7 @@ typedef enum
     cz_inst_Brk,
     cz_inst_Load,
     cz_inst_Store,
+    cz_inst_Call,
     cz_inst_Print,
     cz_inst_Cow,
 } cz_inst_type_t;
@@ -88,6 +89,10 @@ typedef struct
         struct {
             cz_var_t var;
         } store;
+
+        struct {
+            cz_func_t func;
+        } call;
     };
 } cz_inst_t;
 
@@ -142,7 +147,7 @@ cz_add_variable(cz_t *cz, cz_var_t var, cz_type_t type)
 }
 
 void
-cz_begin_function(cz_t *cz, cz_func_t func)
+cz_function_begin(cz_t *cz, cz_func_t func)
 {
     UTILS_STRETCHY_PUSH(cz->functions, (cz_function_t) {
         .func            = func,
@@ -152,7 +157,7 @@ cz_begin_function(cz_t *cz, cz_func_t func)
 }
 
 void
-cz_end_function(cz_t *cz, cz_func_t func)
+cz_function_end(cz_t *cz, cz_func_t func)
 {
     UTILS_ASSERT(cz->functions.count > 0);
 
@@ -165,9 +170,10 @@ cz_end_function(cz_t *cz, cz_func_t func)
 }
 
 #define CZ_FUNC(cz, func_ident) \
-    for (cz_func_t func_ident = ++((cz)->last_func), __done_##__LINE__ = (cz_begin_function((cz), func_ident), false); \
+    cz_func_t func_ident = ++((cz)->last_func); \
+    for (bool __done_##__LINE__ = (cz_function_begin((cz), func_ident), false); \
          !__done_##__LINE__; \
-         cz_end_function((cz), func_ident), __done_##__LINE__ = true)
+         cz_function_end((cz), func_ident), __done_##__LINE__ = true)
 
 #define CZ_HALT(cz) \
     cz_emit_inst((cz), (cz_inst_t) { \
@@ -294,6 +300,15 @@ cz_end_function(cz_t *cz, cz_func_t func)
         }, \
     })
 
+#define CZ_CALL(cz, func_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Call, \
+        .call = { \
+            .func = func_id, \
+        }, \
+    })
+
+
 static inline const char *
 cz_inst_type_name(cz_inst_type_t inst_type)
 {
@@ -308,6 +323,7 @@ cz_inst_type_name(cz_inst_type_t inst_type)
         case cz_inst_Brk:        return "brk";
         case cz_inst_Load:       return "load";
         case cz_inst_Store:      return "store";
+        case cz_inst_Call:       return "call";
         case cz_inst_Print:      return "print";
         case cz_inst_Cow:        return "cow";
     }
@@ -376,6 +392,22 @@ typedef UTILS_STRETCHY_T (cz2vm_var_t, unsigned) cz2vm_vars_t;
 
 typedef struct
 {
+    cz_func_t id;
+    size_t start_address;
+} cz2vm_func_t;
+
+typedef UTILS_STRETCHY_T (cz2vm_func_t, unsigned) cz2vm_funcs_t;
+
+typedef struct
+{
+    cz_func_t func_id;
+    size_t address_position;
+} cz2vm_func_patch_t;
+
+typedef UTILS_STRETCHY_T (cz2vm_func_patch_t, unsigned) cz2vm_func_patches_t;
+
+typedef struct
+{
     cz2vm_objects_t eval_stack;
     size_t sp;
 
@@ -387,6 +419,10 @@ typedef struct
     cz2vm_objects_t results; // TODO: Have result segments fold when they are no longer needed
 
     cz2vm_vars_t vars;
+
+    cz2vm_funcs_t funcs;
+    UTILS_STRETCHY_T (cz_func_t, unsigned) todo_funcs;
+    cz2vm_func_patches_t func_patches;
 } cz2vm_t;
 
 static inline size_t
@@ -537,12 +573,32 @@ cz2vm_find_var(cz2vm_t *cz2vm, cz_var_t var_id)
 }
 
 static void
-cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
+cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
 {
+    cz_function_t *function = UTILS_STRETCHY_HOSE(cz->functions, func, func);
+    UTILS_ASSERT(function);
+
+    // TODO: Some of these should be persistent and referenced from the functions.
+    cz2vm->eval_stack.count = 0;
+    cz2vm->scopes.count = 0;
+    cz2vm->scope_results.count = 0;
+    cz2vm->labels.count = 0;
+    cz2vm->label_patches.count = 0;
+    cz2vm->scope_patches.count = 0;
+    cz2vm->results.count = 0;
+    cz2vm->vars.count = 0;
+
+    UTILS_STRETCHY_PUSH(cz2vm->funcs, (cz2vm_func_t) {
+        .id            = func,
+        .start_address = code->count,
+    });
+
+    cz2vm->sp = sizeof(size_t) * 2; // TODO: Maybe alignment too?
+
     size_t variable_offset = 0;
 
-    for (unsigned i = 0; i < cz->variables.count; ++i) {
-        cz_variable_t variable = cz->variables.data[i];
+    for (unsigned var_i = 0; var_i < function->variable_count; ++var_i) {
+        cz_variable_t variable = cz->variables.data[function->variable_offset + var_i];
 
         vm_type_type_t vm_type = cz2vm_vm_type(variable.type);
 
@@ -565,8 +621,11 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
     printf("variable_offset = %d\n", (int)variable_offset);
 
     VM_PUSH(code, None, 0, variable_offset);
+    cz2vm->sp += variable_offset;
 
-    UTILS_STRETCHY_FOR(cz->code, cz_inst_t, inst) {
+    for (unsigned inst_i = 0; inst_i < function->code_count; ++inst_i) {
+        cz_inst_t *inst = cz->code.data + function->code_offset + inst_i;
+
         printf("inst type: '%s'\n", cz_inst_type_name(inst->type));
 
         switch (inst->type) {
@@ -742,7 +801,8 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
                 break;
 
             found_label:
-                UTILS_ASSERT(scope->eval_stack_bottom == cz2vm->sp);
+                UTILS_ASSERT(scope->eval_stack_bottom == cz2vm->eval_stack.count);
+                UTILS_ASSERT(scope->sp_bottom         == cz2vm->sp);
 
                 vm_link(code, jmp_position, label->position);
             } break;
@@ -795,7 +855,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
             } break;
 
             case cz_inst_Load: {
-                cz2vm_var_t *var = cz2vm_find_var(cz2vm, inst->load.var);
+                cz2vm_var_t *var = UTILS_STRETCHY_HOSE(cz2vm->vars, id, inst->load.var);
                 UTILS_ASSERT(var);
 
                 vm_reg_type_t  vm_reg  = cz2vm_vm_reg(var->type);
@@ -811,7 +871,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
 
                 cz2vm_object_t object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
 
-                cz2vm_var_t *var = cz2vm_find_var(cz2vm, inst->load.var);
+                cz2vm_var_t *var = UTILS_STRETCHY_HOSE(cz2vm->vars, id, inst->load.var);
                 UTILS_ASSERT(var);
 
                 UTILS_ASSERT(var->type == object.type);
@@ -824,6 +884,46 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
 
                 VM_IMM_DP(code, var->offset);
                 vm_inst_store(code, vm_reg, 0);
+            } break;
+
+            case cz_inst_Call: {
+                size_t prev_sp = cz2vm->sp;
+
+                if (cz2vm->eval_stack.count > 0) {
+                    cz2vm->sp += cz2vm->eval_stack.data[cz2vm->eval_stack.count - 1].size;
+                }
+
+                vm_align(&(cz2vm->sp), 16); // TODO: Not like this. Use a constant def.
+
+                if (prev_sp != cz2vm->sp) {
+                    VM_PUSH(code, None, 0, cz2vm->sp - prev_sp);
+                }
+
+                cz2vm_func_t *cz2vm_func = UTILS_STRETCHY_HOSE(cz2vm->funcs, id, inst->call.func);
+                if (cz2vm_func) {
+                    vm_inst_call(code, cz2vm_func->start_address);
+                }
+                else {
+                    vm_inst_call(code, 0xDEADC0DE);
+                    UTILS_STRETCHY_PUSH(cz2vm->func_patches, (cz2vm_func_patch_t) {
+                        .func_id          = inst->call.func,
+                        .address_position = code->count - sizeof(size_t),
+                    });
+
+                    unsigned todo_func_i = 0;
+                    for (; todo_func_i < cz2vm->todo_funcs.count; ++todo_func_i) {
+                        if (cz2vm->todo_funcs.data[todo_func_i] == inst->call.func)
+                            break;
+                    }
+
+                    if (todo_func_i == cz2vm->todo_funcs.count) {
+                        UTILS_STRETCHY_PUSH(cz2vm->todo_funcs, inst->call.func);
+                    }
+                }
+
+                if (prev_sp != cz2vm->sp) {
+                    VM_POP(code, None, 0, cz2vm->sp - prev_sp);
+                }
             } break;
 
             case cz_inst_Print: {
@@ -844,13 +944,44 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code)
             } break;
         }
     }
+
+    vm_inst_ret(code);
 }
 
 void
-cz_compile_to_vm(cz_t *cz, vm_mem_buf_t *code)
+cz_compile_to_vm(cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
 {
-    cz2vm_t cz2vm = {0};
-    cz2vm_compile(&cz2vm, cz, code);
+    static cz2vm_t cz2vm_val = {0};
+    cz2vm_t *cz2vm = &cz2vm_val;
+
+    cz2vm->todo_funcs.count = 0;
+    cz2vm->func_patches.count = 0;
+
+    if (!UTILS_STRETCHY_HOSE(cz2vm->funcs, id, func)) {
+        UTILS_STRETCHY_PUSH(cz2vm->todo_funcs, func);
+    }
+
+    vm_inst_call(code, 0xDEADC0DE);
+    UTILS_STRETCHY_PUSH(cz2vm->func_patches, (cz2vm_func_patch_t) {
+        .func_id          = func,
+        .address_position = code->count - sizeof(size_t),
+    });
+
+    VM_HALT(code);
+
+    while (cz2vm->todo_funcs.count != 0) {
+        cz_func_t func = cz2vm->todo_funcs.data[--(cz2vm->todo_funcs.count)];
+        cz2vm_compile(cz2vm, cz, func, code);
+    }
+
+    for (unsigned i = 0; i < cz2vm->func_patches.count; ++i) {
+        cz2vm_func_patch_t patch = cz2vm->func_patches.data[i];
+
+        cz2vm_func_t *cz2vm_func = UTILS_STRETCHY_HOSE(cz2vm->funcs, id, patch.func_id);
+        UTILS_ASSERT(cz2vm_func);
+
+        *(size_t *)(code->data + patch.address_position) = cz2vm_func->start_address;
+    }
 }
 
 int
@@ -881,65 +1012,67 @@ main(void)
     cz_t cz_ctx = {0};
     cz_t *cz = &cz_ctx;
 
-    CZ_IMM_INT(cz, 1);
-    CZ_IMM_INT(cz, 665);
-    CZ_OP(cz, Add);
-
-    CZ_PRINT(cz);
-    CZ_COW(cz);
-
-    cz_compile_to_vm(cz, c);
-#elif 0
-    cz_t cz_ctx = {0};
-    cz_t *cz = &cz_ctx;
-
-    CZ_IMM_INT(cz, 1);
-    CZ_IMM_INT(cz, 2);
-    CZ_OP(cz, LT);
-    CZ_PRINT(cz);
-
-    CZ_COW(cz);
-    CZ_HALT(cz);
-
-    cz_compile_to_vm(cz, c);
-#elif 0
-    cz_t cz_ctx = {0};
-    cz_t *cz = &cz_ctx;
-
-    cz_scope_t scope = CZ_SCOPE_BEGIN(cz);
-    {
-        cz_label_t label = CZ_LABEL_MAKE(cz);
-
+    CZ_FUNC(cz, test_func) {
         CZ_IMM_INT(cz, 1);
-        CZ_IMM_INT(cz, 100);
-        CZ_OP(cz, Mul);
+        CZ_IMM_INT(cz, 665);
+        CZ_OP(cz, Add);
 
-        CZ_IMM_INT(cz, 65);
-        CZ_OP(cz, LT);
-
-        CZ_JMP(cz, label);
-            CZ_IMM_CHAR(cz, 'A');
-            CZ_PRINT(cz);
-
-            CZ_IMM_FLOAT(cz, 6.66f);
-
-            CZ_BRK(cz, scope);
-
-        CZ_LABEL_SET(cz, label);
-            CZ_IMM_CHAR(cz, 'B');
-            CZ_PRINT(cz);
-
-            CZ_IMM_FLOAT(cz, 123.4f);
+        CZ_PRINT(cz);
+        CZ_COW(cz);
     }
-    CZ_SCOPE_END(cz, scope);
 
-    CZ_PRINT(cz);
+    cz_compile_to_vm(cz, test_func, c);
+#elif 0
+    cz_t cz_ctx = {0};
+    cz_t *cz = &cz_ctx;
 
-    CZ_COW(cz);
-    CZ_HALT(cz);
+    CZ_FUNC(cz, test_func) {
+        CZ_IMM_INT(cz, 1);
+        CZ_IMM_INT(cz, 2);
+        CZ_OP(cz, LT);
+        CZ_PRINT(cz);
 
-    cz_compile_to_vm(cz, c);
-#else
+        CZ_COW(cz);
+    }
+
+    cz_compile_to_vm(cz, test_func, c);
+#elif 0
+    cz_t cz_ctx = {0};
+    cz_t *cz = &cz_ctx;
+
+    CZ_FUNC(cz, test_func) {
+        CZ_SCOPE(cz, scope) {
+            cz_label_t label = CZ_LABEL_MAKE(cz);
+
+            CZ_IMM_INT(cz, 1);
+            CZ_IMM_INT(cz, 2);
+            CZ_OP(cz, Mul);
+
+            CZ_IMM_INT(cz, 65);
+            CZ_OP(cz, LT);
+
+            CZ_JMP(cz, label);
+                CZ_IMM_CHAR(cz, 'A');
+                CZ_PRINT(cz);
+
+                CZ_IMM_FLOAT(cz, 6.66f);
+
+                CZ_BRK(cz, scope);
+
+            CZ_LABEL_SET(cz, label);
+                CZ_IMM_CHAR(cz, 'B');
+                CZ_PRINT(cz);
+
+                CZ_IMM_FLOAT(cz, 123.4f);
+        }
+
+        CZ_PRINT(cz);
+
+        CZ_COW(cz);
+    }
+
+    cz_compile_to_vm(cz, test_func, c);
+#elif 0
     cz_t cz_ctx = {0};
     cz_t *cz = &cz_ctx;
 
@@ -981,7 +1114,26 @@ main(void)
         CZ_HALT(cz);
     }
 
-    cz_compile_to_vm(cz, c);
+    cz_compile_to_vm(cz, test_func, c);
+#else
+    cz_t cz_ctx = {0};
+    cz_t *cz = &cz_ctx;
+
+    CZ_FUNC(cz, print_a_func) {
+        CZ_IMM_CHAR(cz, 'A');
+        CZ_PRINT(cz);
+    }
+
+    CZ_FUNC(cz, main_func) {
+
+        CZ_CALL(cz, print_a_func);
+
+        CZ_COW(cz);
+
+        // CZ_CALL(cz, main_func);
+    }
+
+    cz_compile_to_vm(cz, main_func, c);
 #endif
 
     size_t data_size = 4096;
