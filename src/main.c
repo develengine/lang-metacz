@@ -861,7 +861,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                 vm_reg_type_t  vm_reg  = cz2vm_vm_reg(var->type);
                 vm_type_type_t vm_type = cz2vm_vm_type(var->type);
 
-                VM_IMM_DP(code, var->offset);
+                VM_IMM_PTR(code, 0, var->offset);
                 vm_inst_load(code, vm_reg, 0);
                 cz2vm_push(cz2vm, code, var->type, vm_type, vm_reg, 0);
             } break;
@@ -882,7 +882,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                 vm_inst_pop(code, vm_reg, 0, off);
                 cz2vm->sp -= off;
 
-                VM_IMM_DP(code, var->offset);
+                VM_IMM_PTR(code, 0, var->offset);
                 vm_inst_store(code, vm_reg, 0);
             } break;
 
