@@ -1,10 +1,11 @@
 
-14:15 Function calling without arguments or results.
-  - ETA 2h
-  X 19:29 ~ 5.25h
+14:38 Change size_t to ptrdiff_t so that it is less annoying to do arithmetic with.
+  - ETA: 0.5h
+  X 14:42 = 4mins
 
 NEXT:
 - Remove the DP register and replace it with ptrs[0].
+  and address variables as negative offsets from the base pointer.
 - Create a VM_CALL_ALIGNMENT and have the code work with it.
 - Add bounds checks to the vm_run method.
 - Debug information for the instructions.

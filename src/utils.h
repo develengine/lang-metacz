@@ -28,7 +28,7 @@ typedef enum { false = 0, true = 1 } bool;
 
 
 static inline void *
-utils_hopeful_search(void *elems, size_t elem_size, size_t elem_count, size_t id_offset, unsigned id)
+utils_hopeful_search(void *elems, ptrdiff_t elem_size, ptrdiff_t elem_count, ptrdiff_t id_offset, unsigned id)
 {
     unsigned char *elements = elems;
     unsigned char *ptr;
@@ -40,7 +40,7 @@ utils_hopeful_search(void *elems, size_t elem_size, size_t elem_count, size_t id
             return ptr;
     }
 
-    for (size_t i = 0; i < elem_count; ++i) {
+    for (ptrdiff_t i = 0; i < elem_count; ++i) {
         ptr = elements + elem_size * i;
 
         if (*(unsigned *)(ptr + id_offset) == id)

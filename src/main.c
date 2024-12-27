@@ -334,8 +334,8 @@ cz_inst_type_name(cz_inst_type_t inst_type)
 typedef struct
 {
     cz_type_t type;
-    size_t prev_sp;
-    size_t size;
+    ptrdiff_t prev_sp;
+    ptrdiff_t size;
 } cz2vm_object_t;
 
 typedef UTILS_STRETCHY_T (cz2vm_object_t, unsigned) cz2vm_objects_t;
@@ -345,7 +345,7 @@ typedef struct
     cz_scope_t id;
     unsigned eval_stack_bottom;
     unsigned label_offset;
-    size_t sp_bottom;
+    ptrdiff_t sp_bottom;
 
     bool is_result_set;
     unsigned result_offset;
@@ -358,7 +358,7 @@ typedef UTILS_STRETCHY_T (cz2vm_scope_t, unsigned) cz2vm_scopes_t;
 typedef struct
 {
     cz_label_t id;
-    size_t position; 
+    ptrdiff_t position; 
 } cz2vm_label_t;
 
 typedef UTILS_STRETCHY_T (cz2vm_label_t, unsigned) cz2vm_labels_t;
@@ -367,7 +367,7 @@ typedef struct
 {
     cz_scope_t scope_id;
     cz_label_t label_id;
-    size_t jmp_position;
+    ptrdiff_t jmp_position;
 } cz2vm_label_patch_t;
 
 typedef UTILS_STRETCHY_T (cz2vm_label_patch_t, unsigned) cz2vm_label_patches_t;
@@ -375,7 +375,7 @@ typedef UTILS_STRETCHY_T (cz2vm_label_patch_t, unsigned) cz2vm_label_patches_t;
 typedef struct
 {
     cz_scope_t scope_id;
-    size_t jmp_position;
+    ptrdiff_t jmp_position;
 } cz2vm_scope_patch_t;
 
 typedef UTILS_STRETCHY_T (cz2vm_scope_patch_t, unsigned) cz2vm_scope_patches_t;
@@ -384,8 +384,8 @@ typedef struct
 {
     cz_var_t id;
     cz_type_t type;
-    size_t offset;
-    size_t size;
+    ptrdiff_t offset;
+    ptrdiff_t size;
 } cz2vm_var_t;
 
 typedef UTILS_STRETCHY_T (cz2vm_var_t, unsigned) cz2vm_vars_t;
@@ -393,7 +393,7 @@ typedef UTILS_STRETCHY_T (cz2vm_var_t, unsigned) cz2vm_vars_t;
 typedef struct
 {
     cz_func_t id;
-    size_t start_address;
+    ptrdiff_t start_address;
 } cz2vm_func_t;
 
 typedef UTILS_STRETCHY_T (cz2vm_func_t, unsigned) cz2vm_funcs_t;
@@ -401,7 +401,7 @@ typedef UTILS_STRETCHY_T (cz2vm_func_t, unsigned) cz2vm_funcs_t;
 typedef struct
 {
     cz_func_t func_id;
-    size_t address_position;
+    ptrdiff_t address_position;
 } cz2vm_func_patch_t;
 
 typedef UTILS_STRETCHY_T (cz2vm_func_patch_t, unsigned) cz2vm_func_patches_t;
@@ -409,7 +409,7 @@ typedef UTILS_STRETCHY_T (cz2vm_func_patch_t, unsigned) cz2vm_func_patches_t;
 typedef struct
 {
     cz2vm_objects_t eval_stack;
-    size_t sp;
+    ptrdiff_t sp;
 
     cz2vm_scopes_t  scopes;
     cz2vm_objects_t scope_results;
@@ -425,13 +425,13 @@ typedef struct
     cz2vm_func_patches_t func_patches;
 } cz2vm_t;
 
-static inline size_t
+static inline ptrdiff_t
 cz2vm_size(vm_type_type_t type)
 {
     switch (type) {
         case vm_type_Int:   return sizeof(int);
         case vm_type_Float: return sizeof(float);
-        case vm_type_Ptr:   return sizeof(size_t);
+        case vm_type_Ptr:   return sizeof(ptrdiff_t);
         case vm_type_Char:  return sizeof(char);
     }
 
@@ -439,13 +439,13 @@ cz2vm_size(vm_type_type_t type)
     exit(1);
 }
 
-static inline size_t
+static inline ptrdiff_t
 cz2vm_alignment(vm_type_type_t type)
 {
     switch (type) {
         case vm_type_Int:   return _Alignof(int);
         case vm_type_Float: return _Alignof(float);
-        case vm_type_Ptr:   return _Alignof(size_t);
+        case vm_type_Ptr:   return _Alignof(ptrdiff_t);
         case vm_type_Char:  return _Alignof(char);
     }
 
@@ -593,9 +593,9 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
         .start_address = code->count,
     });
 
-    cz2vm->sp = sizeof(size_t) * 2; // TODO: Maybe alignment too?
+    cz2vm->sp = sizeof(ptrdiff_t) * 2; // TODO: Maybe alignment too?
 
-    size_t variable_offset = 0;
+    ptrdiff_t variable_offset = 0;
 
     for (unsigned var_i = 0; var_i < function->variable_count; ++var_i) {
         cz_variable_t variable = cz->variables.data[function->variable_offset + var_i];
@@ -704,7 +704,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
 
                 unsigned patch_dst_i = 0;
 
-                size_t code_position = code->count;
+                ptrdiff_t code_position = code->count;
 
                 for (unsigned patch_i = 0; patch_i < cz2vm->scope_patches.count; ++patch_i) {
                     cz2vm_scope_patch_t *patch = cz2vm->scope_patches.data + patch_i;
@@ -769,7 +769,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                 vm_inst_pop(code, vm_reg_Int, 0, off);
                 cz2vm->sp -= off;
 
-                size_t jmp_position = VM_JMP_IF(code);
+                ptrdiff_t jmp_position = VM_JMP_IF(code);
 
                 UTILS_ASSERT(cz2vm_stack_count(cz2vm) == 0);
 
@@ -811,7 +811,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                 UTILS_ASSERT(cz2vm->scopes.count > 0);
 
                 VM_IMM_INT(code, 0, 1);
-                size_t jmp_position = VM_JMP_IF(code);
+                ptrdiff_t jmp_position = VM_JMP_IF(code);
 
                 unsigned scope_i = 0;
                 cz2vm_scope_t *scope = NULL;
@@ -887,7 +887,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
             } break;
 
             case cz_inst_Call: {
-                size_t prev_sp = cz2vm->sp;
+                ptrdiff_t prev_sp = cz2vm->sp;
 
                 if (cz2vm->eval_stack.count > 0) {
                     cz2vm->sp += cz2vm->eval_stack.data[cz2vm->eval_stack.count - 1].size;
@@ -907,7 +907,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                     vm_inst_call(code, 0xDEADC0DE);
                     UTILS_STRETCHY_PUSH(cz2vm->func_patches, (cz2vm_func_patch_t) {
                         .func_id          = inst->call.func,
-                        .address_position = code->count - sizeof(size_t),
+                        .address_position = code->count - sizeof(ptrdiff_t),
                     });
 
                     unsigned todo_func_i = 0;
@@ -964,7 +964,7 @@ cz_compile_to_vm(cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
     vm_inst_call(code, 0xDEADC0DE);
     UTILS_STRETCHY_PUSH(cz2vm->func_patches, (cz2vm_func_patch_t) {
         .func_id          = func,
-        .address_position = code->count - sizeof(size_t),
+        .address_position = code->count - sizeof(ptrdiff_t),
     });
 
     VM_HALT(code);
@@ -980,7 +980,7 @@ cz_compile_to_vm(cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
         cz2vm_func_t *cz2vm_func = UTILS_STRETCHY_HOSE(cz2vm->funcs, id, patch.func_id);
         UTILS_ASSERT(cz2vm_func);
 
-        *(size_t *)(code->data + patch.address_position) = cz2vm_func->start_address;
+        *(ptrdiff_t *)(code->data + patch.address_position) = cz2vm_func->start_address;
     }
 }
 
@@ -1136,7 +1136,7 @@ main(void)
     cz_compile_to_vm(cz, main_func, c);
 #endif
 
-    size_t data_size = 4096;
+    ptrdiff_t data_size = 4096;
     unsigned char *data = malloc(data_size);
     UTILS_ASSERT(data);
 
