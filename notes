@@ -1,11 +1,11 @@
 
-14:42 Remove the DP and use ptrs[0] instead.
-  - ETA: 0.5h
-  X 15:00 = 18min
+19:53 Create a VM_CALL_ALIGNMENT and have the code work with it.
+ - ETA: 0.5h
+ X 20:03 = 10 min
 
 NEXT:
-- Create a VM_CALL_ALIGNMENT and have the code work with it.
 - Add bounds checks to the vm_run method.
+- Implement argument passing to the procedures.
 - Debug information for the instructions.
 
 

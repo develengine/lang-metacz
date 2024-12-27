@@ -425,6 +425,8 @@ typedef struct
     cz2vm_func_patches_t func_patches;
 } cz2vm_t;
 
+#define CZ2VM_PROC_ALIGNMENT (sizeof(ptrdiff_t))
+
 static inline ptrdiff_t
 cz2vm_size(vm_type_type_t type)
 {
@@ -593,7 +595,8 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
         .start_address = code->count,
     });
 
-    cz2vm->sp = sizeof(ptrdiff_t) * 2; // TODO: Maybe alignment too?
+    cz2vm->sp = sizeof(ptrdiff_t) * 2; // bp, ip
+    vm_align(&cz2vm->sp, CZ2VM_PROC_ALIGNMENT);
 
     ptrdiff_t variable_offset = 0;
 
@@ -616,7 +619,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
         variable_offset += var.size;
     }
 
-    vm_align(&variable_offset, 16); // TODO: Don't do it like this. Allow for arbitrary offset.
+    vm_align(&variable_offset, CZ2VM_PROC_ALIGNMENT);
 
     printf("variable_offset = %d\n", (int)variable_offset);
 
@@ -893,7 +896,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                     cz2vm->sp += cz2vm->eval_stack.data[cz2vm->eval_stack.count - 1].size;
                 }
 
-                vm_align(&(cz2vm->sp), 16); // TODO: Not like this. Use a constant def.
+                vm_align(&(cz2vm->sp), CZ2VM_PROC_ALIGNMENT);
 
                 if (prev_sp != cz2vm->sp) {
                     VM_PUSH(code, None, 0, cz2vm->sp - prev_sp);
