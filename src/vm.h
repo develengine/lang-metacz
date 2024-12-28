@@ -22,6 +22,7 @@ typedef enum
     vm_inst_Ret,      //
     vm_inst_Jmp,      // [off]
     vm_inst_JmpIf,    // [off]
+    vm_inst_MemMove,  // [dst] [src] [size]
 } vm_inst_t;
 
 typedef enum
@@ -48,6 +49,19 @@ typedef enum
     vm_type_Float,
 } vm_type_type_t;
 
+static inline const char *
+vm_type_name(vm_type_type_t type)
+{
+    switch (type) {
+        case vm_type_Int:   return "int";
+        case vm_type_Char:  return "char";
+        case vm_type_Ptr:   return "ptr";
+        case vm_type_Float: return "float";
+    }
+
+    return "<unknown type>";
+}
+
 typedef enum
 {
     vm_op_Add,
@@ -71,12 +85,49 @@ typedef enum
     vm_op_NE,
 } vm_op_type_t;
 
+static inline const char *
+vm_op_name(vm_op_type_t op)
+{
+    switch (op) {
+        case vm_op_Add:    return "add";
+        case vm_op_Sub:    return "sub";
+        case vm_op_Mul:    return "mul";
+        case vm_op_Div:    return "div";
+        case vm_op_Mod:    return "mod";
+        case vm_op_Or:     return "or";
+        case vm_op_And:    return "and";
+        case vm_op_BitOr:  return "bit_or";
+        case vm_op_BitAnd: return "bit_and";
+        case vm_op_BitXor: return "bit_xor";
+        case vm_op_LT:     return "lt";
+        case vm_op_LE:     return "le";
+        case vm_op_GT:     return "gt";
+        case vm_op_GE:     return "ge";
+        case vm_op_EQ:     return "eq";
+        case vm_op_NE:     return "ne";
+    }
+
+    return "<unknown op>";
+}
+
 typedef enum
 {
     vm_un_op_Not,
     vm_un_op_BitNot,
     vm_un_op_Negate,
 } vm_un_op_type_t;
+
+static inline const char *
+vm_un_op_name(vm_un_op_type_t un_op)
+{
+    switch (un_op) {
+        case vm_un_op_Not:    return "not";
+        case vm_un_op_BitNot: return "bit_not";
+        case vm_un_op_Negate: return "negate";
+    }
+
+    return "<unknown un_op>";
+}
 
 typedef struct
 {
@@ -307,6 +358,15 @@ vm_inst_ret(vm_mem_buf_t *code)
     (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_Ret);
 }
 
+static inline void
+vm_inst_memmove(vm_mem_buf_t *code, ptrdiff_t dst, ptrdiff_t src, ptrdiff_t size)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_MemMove);
+    (void)VM_MEM_BUF_PUSH(code, ptrdiff_t, dst);
+    (void)VM_MEM_BUF_PUSH(code, ptrdiff_t, src);
+    (void)VM_MEM_BUF_PUSH(code, ptrdiff_t, size);
+}
+
 #endif // VM_H_
 
 #ifdef VM_IMPL
@@ -491,6 +551,16 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                         *(ptrdiff_t*)(data + regs.sp) = regs.ip;
                         break;
                 }
+            } break;
+
+            case vm_inst_MemMove: {
+                ptrdiff_t dst  = VM_MEM_GET(code->data, &regs.ip, ptrdiff_t);
+                ptrdiff_t src  = VM_MEM_GET(code->data, &regs.ip, ptrdiff_t);
+                ptrdiff_t size = VM_MEM_GET(code->data, &regs.ip, ptrdiff_t);
+
+                memmove(data + regs.bp + dst,
+                        data + regs.bp + src,
+                        size);
             } break;
 
             case vm_inst_Op: {
@@ -703,20 +773,15 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
 
                 ptrdiff_t new_bp = regs.sp;
 
-                // TODO: Maybe check alignment?
-
                 *(ptrdiff_t*)(data + regs.sp) = regs.bp;
                 regs.sp += sizeof(ptrdiff_t);
                 *(ptrdiff_t*)(data + regs.sp) = return_address;
                 regs.sp += sizeof(ptrdiff_t);
 
-                // TODO: Handle alignment correctly.
-
                 regs.bp = new_bp;
             } break;
 
             case vm_inst_Ret: {
-                regs.sp = regs.bp;
                 regs.ip = *(ptrdiff_t*)(data + regs.bp + 1 * sizeof(ptrdiff_t));
                 regs.bp = *(ptrdiff_t*)(data + regs.bp + 0 * sizeof(ptrdiff_t));
             } break;
@@ -755,6 +820,298 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
             default:
                 fprintf(stderr, "Unknown instruction: (%u)\n", inst);
                 exit(1);
+        }
+    }
+}
+
+void
+vm_disassemble(vm_mem_buf_t *code)
+{
+    ptrdiff_t ip = 0;
+
+    for (;;) {
+        if (ip >= code->count)
+            return;
+
+        vm_align(&ip, _Alignof(vm_inst_t));
+        printf("%04ld  ", ip);
+        vm_inst_t inst = VM_MEM_GET(code->data, &ip, vm_inst_t);
+
+        switch (inst) {
+            case vm_inst_Halt:
+                printf("halt\n");
+                break;
+
+            case vm_inst_Cow: {
+                printf("cow\n");
+            } break;
+
+            case vm_inst_LoadImm: {
+                vm_inst_reg_t reg = VM_MEM_GET(code->data, &ip, vm_inst_reg_t);
+
+                printf("load_imm ");
+
+                switch (reg.type) {
+                    case vm_reg_None:
+                        printf("none\n");
+                        break;
+                    case vm_reg_Int:
+                        printf("ints[%d] %d\n", reg.index, VM_MEM_GET(code->data, &ip, int));
+                        break;
+                    case vm_reg_Float:
+                        printf("floats[%d] %f\n", reg.index, VM_MEM_GET(code->data, &ip, float));
+                        break;
+                    case vm_reg_Ptr:
+                        printf("ptrs[%d] %ld\n", reg.index, VM_MEM_GET(code->data, &ip, ptrdiff_t));
+                        break;
+                    case vm_reg_Char:
+                        printf("chars[%d] %c\n", reg.index, VM_MEM_GET(code->data, &ip, char));
+                        break;
+                    case vm_reg_BP:
+                        printf("bp %ld\n", VM_MEM_GET(code->data, &ip, ptrdiff_t));
+                        break;
+                    case vm_reg_SP:
+                        printf("sp %ld\n", VM_MEM_GET(code->data, &ip, ptrdiff_t));
+                        break;
+                    case vm_reg_IP:
+                        printf("ip %ld\n", VM_MEM_GET(code->data, &ip, ptrdiff_t));
+                        break;
+                }
+            } break;
+
+            case vm_inst_StoreImm: {
+                vm_inst_mem_t mem = VM_MEM_GET(code->data, &ip, vm_inst_mem_t);
+                printf("store_imm (alignment: %ld, size: %ld)\n", mem.alignment, mem.size);
+            } break;
+
+            case vm_inst_Load: {
+                vm_inst_reg_t reg = VM_MEM_GET(code->data, &ip, vm_inst_reg_t);
+
+                printf("load ");
+
+                switch (reg.type) {
+                    case vm_reg_None:
+                        printf("none\n");
+                        break;
+                    case vm_reg_Int:
+                        printf("ints[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Float:
+                        printf("floats[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Ptr:
+                        printf("ptrs[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Char:
+                        printf("chars[%d]\n", reg.index);
+                        break;
+                    case vm_reg_BP:
+                        printf("bp\n");
+                        break;
+                    case vm_reg_SP:
+                        printf("sp\n");
+                        break;
+                    case vm_reg_IP:
+                        printf("ip\n");
+                        break;
+                }
+            } break;
+
+            case vm_inst_Store: {
+                vm_inst_reg_t reg = VM_MEM_GET(code->data, &ip, vm_inst_reg_t);
+
+                printf("store ");
+
+                switch (reg.type) {
+                    case vm_reg_None:
+                        printf("none\n");
+                        break;
+                    case vm_reg_Int:
+                        printf("ints[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Float:
+                        printf("floats[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Ptr:
+                        printf("ptrs[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Char:
+                        printf("chars[%d]\n", reg.index);
+                        break;
+                    case vm_reg_BP:
+                        printf("bp\n");
+                        break;
+                    case vm_reg_SP:
+                        printf("sp\n");
+                        break;
+                    case vm_reg_IP:
+                        printf("ip\n");
+                        break;
+                }
+            } break;
+
+            case vm_inst_Pop: {
+                vm_inst_reg_t reg = VM_MEM_GET(code->data, &ip, vm_inst_reg_t);
+                ptrdiff_t off = (ptrdiff_t)VM_MEM_GET(code->data, &ip, int);
+
+                printf("pop ");
+
+                switch (reg.type) {
+                    case vm_reg_None:
+                        printf("none ");
+                        break;
+                    case vm_reg_Int:
+                        printf("ints[%d] ", reg.index);
+                        break;
+                    case vm_reg_Float:
+                        printf("floats[%d] ", reg.index);
+                        break;
+                    case vm_reg_Ptr:
+                        printf("ptrs[%d] ", reg.index);
+                        break;
+                    case vm_reg_Char:
+                        printf("chars[%d] ", reg.index);
+                        break;
+                    case vm_reg_BP:
+                        printf("bp ");
+                        break;
+                    case vm_reg_SP:
+                        printf("sp ");
+                        break;
+                    case vm_reg_IP:
+                        printf("ip ");
+                        break;
+                }
+
+                printf("%ld\n", off);
+            } break;
+
+            case vm_inst_Push: {
+                vm_inst_reg_t reg = VM_MEM_GET(code->data, &ip, vm_inst_reg_t);
+                ptrdiff_t off = (ptrdiff_t)VM_MEM_GET(code->data, &ip, int);
+
+                printf("push ");
+
+                switch (reg.type) {
+                    case vm_reg_None:
+                        printf("none ");
+                        break;
+                    case vm_reg_Int:
+                        printf("ints[%d] ", reg.index);
+                        break;
+                    case vm_reg_Float:
+                        printf("floats[%d] ", reg.index);
+                        break;
+                    case vm_reg_Ptr:
+                        printf("ptrs[%d] ", reg.index);
+                        break;
+                    case vm_reg_Char:
+                        printf("chars[%d] ", reg.index);
+                        break;
+                    case vm_reg_BP:
+                        printf("bp ");
+                        break;
+                    case vm_reg_SP:
+                        printf("sp ");
+                        break;
+                    case vm_reg_IP:
+                        printf("ip ");
+                        break;
+                }
+
+                printf("%ld\n", off);
+            } break;
+
+            case vm_inst_MemMove: {
+                ptrdiff_t dst  = VM_MEM_GET(code->data, &ip, ptrdiff_t);
+                ptrdiff_t src  = VM_MEM_GET(code->data, &ip, ptrdiff_t);
+                ptrdiff_t size = VM_MEM_GET(code->data, &ip, ptrdiff_t);
+
+                printf("mem_move (dst: %ld, src: %ld, size: %ld)\n",
+                        dst, src, size);
+            } break;
+
+            case vm_inst_Op: {
+                vm_inst_op_t op = VM_MEM_GET(code->data, &ip, vm_inst_op_t);
+
+                printf("op %s %s\n", vm_type_name(op.type_type), vm_op_name(op.type));
+            } break;
+
+            case vm_inst_ShiftL: {
+                vm_type_type_t type = VM_MEM_GET(code->data, &ip, vm_type_type_t);
+
+                printf("shift_l %s\n", vm_type_name(type));
+            } break;
+
+            case vm_inst_ShiftR: {
+                vm_type_type_t type = VM_MEM_GET(code->data, &ip, vm_type_type_t);
+
+                printf("shift_r %s\n", vm_type_name(type));
+            } break;
+
+            case vm_inst_UnOp: {
+                vm_int_un_op_t un_op = VM_MEM_GET(code->data, &ip, vm_int_un_op_t);
+                
+                printf("un_op %s %s\n", vm_type_name(un_op.type_type), vm_un_op_name(un_op.type));
+            } break;
+
+            case vm_inst_Jmp: {
+                int off = VM_MEM_GET(code->data, &ip, int);
+
+                printf("jmp %d\n", off);
+            } break;
+
+            case vm_inst_JmpIf: {
+                int off = VM_MEM_GET(code->data, &ip, int);
+
+                printf("jmp_if %d\n", off);
+            } break;
+
+            case vm_inst_Call: {
+                ptrdiff_t address = VM_MEM_GET(code->data, &ip, ptrdiff_t);
+
+                printf("call %ld\n", address);
+            } break;
+
+            case vm_inst_Ret: {
+                printf("ret\n");
+            } break;
+
+            case vm_inst_Print: {
+                vm_inst_reg_t reg = VM_MEM_GET(code->data, &ip, vm_inst_reg_t);
+
+                printf("print ");
+
+                switch (reg.type) {
+                    case vm_reg_None:
+                        printf("none\n");
+                        break;
+                    case vm_reg_Int:
+                        printf("ints[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Float:
+                        printf("floats[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Ptr:
+                        printf("ptrs[%d]\n", reg.index);
+                        break;
+                    case vm_reg_Char:
+                        printf("chars[%d]\n", reg.index);
+                        break;
+                    case vm_reg_BP:
+                        printf("bp\n");
+                        break;
+                    case vm_reg_SP:
+                        printf("sp\n");
+                        break;
+                    case vm_reg_IP:
+                        printf("ip\n");
+                        break;
+                }
+            } break;
+
+            default:
+                printf("unknown (%u)\n", inst);
         }
     }
 }

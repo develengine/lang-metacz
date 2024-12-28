@@ -1,11 +1,12 @@
 
-12:49 Implement a way to add inputs and outputs to the metacz function representations.
- - ETA: 1h
- X 13:39 = 50 min.
+14:23 Implement argument passing to the procedures.
+  - ETA: 2h
+  / Break: 15:57 - 16:25 = 28
+  X 19:21 = 4'58 - 0'28 = 04'30h
 
 NEXT:
+- Add checks for function ends, that the stack is as the results mandate.
 - Add bounds checks to the vm_run method.
-- Implement argument passing to the procedures.
 - Debug information for the instructions.
 
 
