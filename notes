@@ -1,7 +1,7 @@
 
-19:53 Create a VM_CALL_ALIGNMENT and have the code work with it.
- - ETA: 0.5h
- X 20:03 = 10 min
+12:49 Implement a way to add inputs and outputs to the metacz function representations.
+ - ETA: 1h
+ X 13:39 = 50 min.
 
 NEXT:
 - Add bounds checks to the vm_run method.

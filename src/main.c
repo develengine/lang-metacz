@@ -42,10 +42,17 @@ typedef enum
     cz_inst_op_NE,
 } cz_inst_op_type_t;
 
+typedef enum
+{
+    cz_mem_Var,
+    cz_mem_In,
+} cz_mem_type_t;
+
 typedef unsigned cz_scope_t;
 typedef unsigned cz_label_t;
 typedef unsigned cz_var_t;
 typedef unsigned cz_func_t;
+typedef unsigned cz_in_t;
 
 typedef struct
 {
@@ -77,17 +84,25 @@ typedef struct
             cz_scope_t scope;
         } brk;
 
-        struct {
-            cz_var_t var;
-            cz_type_t type;
-        } var;
+//        struct {
+//            cz_var_t var;
+//            cz_type_t type;
+//        } var;
 
         struct {
-            cz_var_t var;
+            cz_mem_type_t mem_type;
+            union {
+                cz_var_t var;
+                cz_in_t  in;
+            };
         } load;
 
         struct {
-            cz_var_t var;
+            cz_mem_type_t mem_type;
+            union {
+                cz_var_t var;
+                cz_in_t  in;
+            };
         } store;
 
         struct {
@@ -108,6 +123,21 @@ typedef UTILS_STRETCHY_T (cz_variable_t, unsigned) cz_variables_t;
 
 typedef struct
 {
+    cz_in_t   in;
+    cz_type_t type;
+} cz_input_t;
+
+typedef UTILS_STRETCHY_T (cz_input_t, unsigned) cz_inputs_t;
+
+typedef struct
+{
+    cz_type_t type;
+} cz_result_t;
+
+typedef UTILS_STRETCHY_T (cz_result_t, unsigned) cz_results_t;
+
+typedef struct
+{
     cz_func_t func;
 
     unsigned code_offset;
@@ -115,6 +145,12 @@ typedef struct
 
     unsigned variable_offset;
     unsigned variable_count;
+
+    unsigned input_offset;
+    unsigned input_count;
+
+    unsigned result_offset;
+    unsigned result_count;
 } cz_function_t;
 
 typedef UTILS_STRETCHY_T (cz_function_t, unsigned) cz_functions_t;
@@ -123,12 +159,15 @@ typedef struct
 {
     cz_code_t      code;
     cz_variables_t variables;
+    cz_inputs_t    inputs;
+    cz_results_t   results;
     cz_functions_t functions;
 
     cz_scope_t last_scope;
     cz_label_t last_label;
     cz_var_t   last_var;
     cz_func_t  last_func;
+    cz_in_t    last_in;
 } cz_t;
 
 void
@@ -147,12 +186,31 @@ cz_add_variable(cz_t *cz, cz_var_t var, cz_type_t type)
 }
 
 void
+cz_add_input(cz_t *cz, cz_in_t in, cz_type_t type)
+{
+    UTILS_STRETCHY_PUSH(cz->inputs, (cz_input_t) {
+        .in   = in,
+        .type = type,
+    });
+}
+
+void
+cz_add_result(cz_t *cz, cz_type_t type)
+{
+    UTILS_STRETCHY_PUSH(cz->results, (cz_result_t) {
+        .type = type,
+    });
+}
+
+void
 cz_function_begin(cz_t *cz, cz_func_t func)
 {
     UTILS_STRETCHY_PUSH(cz->functions, (cz_function_t) {
         .func            = func,
         .code_offset     = cz->code.count,
         .variable_offset = cz->variables.count,
+        .input_offset    = cz->inputs.count,
+        .result_offset   = cz->results.count,
     });
 }
 
@@ -167,6 +225,8 @@ cz_function_end(cz_t *cz, cz_func_t func)
 
     function->code_count     = cz->code.count      - function->code_offset;
     function->variable_count = cz->variables.count - function->variable_offset;
+    function->input_count    = cz->inputs.count    - function->input_offset;
+    function->result_count   = cz->results.count   - function->result_offset;
 }
 
 #define CZ_FUNC(cz, func_ident) \
@@ -284,19 +344,30 @@ cz_function_end(cz_t *cz, cz_func_t func)
     (cz)->last_var \
 )
 
-#define CZ_LOAD(cz, var_id) \
+#define CZ_IN(cz, type_sf) \
+( \
+    cz_add_input((cz), ++((cz)->last_in), cz_type_##type_sf), \
+    (cz)->last_in \
+)
+
+#define CZ_RES(cz, type_sf) \
+    cz_add_result((cz), cz_type_##type_sf)
+
+#define CZ_LOAD(cz, mem_sf, var_id) \
     cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Load, \
         .load = { \
-            .var = (var_id), \
+            .mem_type = cz_mem_##mem_sf, \
+            .var      = (var_id), /* TODO: this should be done differently */ \
         }, \
     })
 
-#define CZ_STORE(cz, var_id) \
+#define CZ_STORE(cz, mem_sf, var_id) \
     cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Store, \
-        .load = { \
-            .var = (var_id), \
+        .store = { \
+            .mem_type = cz_mem_##mem_sf, \
+            .var      = (var_id), /* TODO: this should be done differently */ \
         }, \
     })
 
@@ -1118,7 +1189,7 @@ main(void)
     }
 
     cz_compile_to_vm(cz, test_func, c);
-#else
+#elif 0
     cz_t cz_ctx = {0};
     cz_t *cz = &cz_ctx;
 
@@ -1134,6 +1205,55 @@ main(void)
         CZ_COW(cz);
 
         // CZ_CALL(cz, main_func);
+    }
+
+    cz_compile_to_vm(cz, main_func, c);
+#else
+    cz_t cz_ctx = {0};
+    cz_t *cz = &cz_ctx;
+
+    CZ_FUNC(cz, print_a_func) {
+        cz_in_t count = CZ_IN(cz, Int);
+        CZ_RES(cz, Int);
+
+        cz_var_t loops_left = CZ_VAR(cz, Int);
+        CZ_LOAD(cz, In, count);
+        CZ_STORE(cz, Var, loops_left);
+
+        CZ_SCOPE(cz, loop) {
+            cz_label_t l_continue = CZ_LABEL_MAKE(cz);
+            CZ_LABEL_SET(cz, l_continue);
+
+            CZ_LOAD(cz, Var, loops_left);
+            CZ_IMM_INT(cz, 0);
+            CZ_OP(cz, GT);
+
+            cz_label_t l_print = CZ_LABEL_MAKE(cz);
+            CZ_JMP(cz, l_print);
+
+                CZ_BRK(cz, loop);
+
+            CZ_LABEL_SET(cz, l_print);
+
+                CZ_IMM_CHAR(cz, 'A');
+                CZ_PRINT(cz);
+
+                CZ_LOAD(cz, Var, loops_left);
+                CZ_IMM_INT(cz, 1);
+                CZ_OP(cz, Sub);
+                CZ_STORE(cz, Var, loops_left);
+
+            CZ_IMM_BOOL(cz, true);
+            CZ_JMP(cz, l_continue);
+        }
+    }
+
+    CZ_FUNC(cz, main_func) {
+
+        CZ_IMM_INT(cz, 10);
+        CZ_CALL(cz, print_a_func);
+
+        CZ_COW(cz);
     }
 
     cz_compile_to_vm(cz, main_func, c);
