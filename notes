@@ -1,10 +1,14 @@
 
-12:11 Add checks for function ends, that the stack is as the results mandate.
-- ETA: 1h
-X 12:22 = 11min
+17:35 Make it possible to pass parameters to initial functions.
++ Don't emit alignment operations if they aren't necessary.
++ Don't assume the initial function hasn't been compiled already.
+- ETA: 1.5h
+X 17:50 = 15 min
 
 NEXT:
+- Add foreign pointer support to vm.
 - Add bounds checks to the vm_run method.
 - Debug information for the instructions.
+
 
 

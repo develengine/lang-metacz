@@ -1,0 +1,47 @@
+
+A list of problems that a programming language should enable solving:
+
+
+* We must be able to generate code that can also be referenced from the frontend.
+
+Generating code on the level of IR is all well and good,
+but we also need to be able to generate code that can then be used in the fronted,
+like functions that can be called by an identifier, enumerations and variables.
+
+* We do also want to be able to add meta-code in the middle of a procedure.
+
+Something like:
+
+switch type {
+    ${
+        for type in types {
+            name := type.name;
+            *{
+                case types.$(types.value): {
+                    print("{$name}\n");
+                }
+            *}
+        }
+    $}
+}
+
+* Instead of macros we should have generating functions,
+  but then we need to differentiate between which function is a generator and which not,
+  so that when we call it we call it during parsing and vice versa.
+
+float
+normal_func(i = int, d = float)
+{
+    return float(3 * i) / d;
+}
+
+$gen
+print(args = ...)
+{
+    ..
+}
+
+
+Input arguments, So far defined variables, results.
+Structures and types, lengths of given arrays.
+External arguments from the frontend / wherever the code is being called.

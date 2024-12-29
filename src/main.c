@@ -808,7 +808,9 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
         .start_address = code->count,
     });
 
-    VM_PUSH(code, None, 0, func_def.var_size);
+    if (func_def.var_size != 0) {
+        VM_PUSH(code, None, 0, func_def.var_size);
+    }
     cz2vm->sp = func_def.meta_size + func_def.var_size;
 
     for (unsigned inst_i = 0; inst_i < function->code_count; ++inst_i) {
@@ -1264,15 +1266,26 @@ cz_compile_to_vm(cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
     cz2vm->todo_funcs.count = 0;
     cz2vm->func_patches.count = 0;
 
-    if (!UTILS_STRETCHY_HOSE(cz2vm->funcs, id, func)) {
-        UTILS_STRETCHY_PUSH(cz2vm->todo_funcs, func);
+    cz2vm_func_def_t func_def = {0};
+    bool success = cz2vm_get_func_def(cz2vm, cz, func, &func_def);
+    UTILS_ASSERT(success);
+
+    if (func_def.in_size != 0) {
+        VM_PUSH(code, None, 0, func_def.in_size);
     }
 
-    vm_inst_call(code, 0xDEADC0DE);
-    UTILS_STRETCHY_PUSH(cz2vm->func_patches, (cz2vm_func_patch_t) {
-        .func_id          = func,
-        .address_position = code->count - sizeof(ptrdiff_t),
-    });
+    cz2vm_func_t *cz2vm_func = UTILS_STRETCHY_HOSE(cz2vm->funcs, id, func);
+    if (cz2vm_func) {
+        vm_inst_call(code, cz2vm_func->start_address);
+    }
+    else {
+        vm_inst_call(code, 0xDEADC0DE);
+        UTILS_STRETCHY_PUSH(cz2vm->func_patches, (cz2vm_func_patch_t) {
+            .func_id          = func,
+            .address_position = code->count - sizeof(ptrdiff_t),
+        });
+        UTILS_STRETCHY_PUSH(cz2vm->todo_funcs, func);
+    }
 
     VM_HALT(code);
 
@@ -1486,8 +1499,10 @@ main(void)
     }
 
     CZ_FUNC(cz, main_func) {
+        cz_in_t count = CZ_IN(cz, Int);
 
-        CZ_IMM_INT(cz, 10);
+        // CZ_IMM_INT(cz, 10);
+        CZ_LOAD(cz, In, count);
         CZ_CALL(cz, print_a_func);
         CZ_PRINT(cz);
 
@@ -1505,6 +1520,7 @@ main(void)
     unsigned char *data = malloc(data_size);
     UTILS_ASSERT(data);
 
+    *(int*)data = 10;
     vm_run(c, data, data_size);
 
     return 0;
