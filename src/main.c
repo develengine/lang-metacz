@@ -21,9 +21,10 @@ typedef enum
 typedef enum
 {
     cz_type_Int,
-    cz_type_Float,
-    cz_type_Bool,
     cz_type_Char,
+    cz_type_Bool,
+
+    cz_type_Float,
 } cz_type_t;
 
 typedef enum
@@ -83,11 +84,6 @@ typedef struct
         struct {
             cz_scope_t scope;
         } brk;
-
-//        struct {
-//            cz_var_t var;
-//            cz_type_t type;
-//        } var;
 
         struct {
             cz_mem_type_t mem_type;
@@ -818,8 +814,6 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
     for (unsigned inst_i = 0; inst_i < function->code_count; ++inst_i) {
         cz_inst_t *inst = cz->code.data + function->code_offset + inst_i;
 
-        printf("inst type: '%s'\n", cz_inst_type_name(inst->type));
-
         switch (inst->type) {
             case cz_inst_Halt: {
                 VM_HALT(code);
@@ -1125,11 +1119,7 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                 
                 vm_align(&input_offset, CZ2VM_PROC_ALIGNMENT);
 
-                printf("input_offset: %ld\n", input_offset);
-
                 ptrdiff_t next_sp = input_offset + callee_def.in_size;
-
-                printf("next_sp: %ld\n", next_sp);
 
                 if (cz2vm->sp != next_sp) {
                     VM_PUSH(code, None, 0, next_sp - cz2vm->sp);
@@ -1196,8 +1186,6 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
 
                     ptrdiff_t src_base = input_offset + callee_def.in_size + callee_def.meta_size + callee_def.var_size;
                     
-                    printf("src_base: %ld\n", src_base);
-
                     for (unsigned res_i = 0; res_i < callee_def.res_count; ++res_i) {
                         cz2vm_res_t res = cz2vm->reses.data[callee_def.res_offset + res_i];
 
@@ -1209,7 +1197,6 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
 
                         // TODO: Merge moves if possible.
                         if (dst != src) {
-                            printf("dst: %ld, src: %ld, size: %ld\n", dst, src, res.size);
                             vm_inst_memmove(code, dst, src, res.size);
                         }
 
@@ -1252,6 +1239,17 @@ cz2vm_compile(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                 VM_COW(code);
             } break;
         }
+    }
+
+    UTILS_ASSERT(cz2vm->eval_stack.count == func_def.res_count);
+
+    for (unsigned res_i = 0; res_i < func_def.res_count; ++res_i) {
+        cz2vm_object_t obj = cz2vm->eval_stack.data[res_i];
+        cz2vm_res_t    res = cz2vm->reses.data[func_def.res_offset + res_i];
+
+        UTILS_ASSERT(obj.type   == res.type);
+        UTILS_ASSERT(obj.size   == res.size);
+        UTILS_ASSERT(obj.offset == res.offset + func_def.meta_size + func_def.var_size);
     }
 
     vm_inst_ret(code);
