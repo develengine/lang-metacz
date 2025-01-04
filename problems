@@ -28,23 +28,31 @@ switch type {
 * Instead of macros we should have generating functions,
   but then we need to differentiate between which function is a generator and which not,
   so that when we call it we call it during parsing and vice versa.
+  - But the generator may also behave as a function...
+  - This means that the generator needs a function signature as well? For the return type?
+    - No, the compiler, thus the type checker as well, isn't executing whilst we are just generating code.
+    - This will be checked during compilation and we can if we want store the stack trace as metadata in the instruction stream.
+  - I think that some sort of meta checker for the generators and type agnostic procedures can be implemented on top not within.
 
-float
-normal_func(i = int, d = float)
+proc normal_func(i: int, d: float) -> float
 {
     return float(3 * i) / d;
 }
 
-$gen
-print(args = ...)
+proc another_func(l: float, a: float) -> (x: float, y: float)
+{
+    return (cos(a) * l, sin(a) * l);
+}
+
+gen print(args: ...)
 {
     ..
 }
 
-
-Input arguments, So far defined variables, results.
-Structures and types, lengths of given arrays.
-External arguments from the frontend / wherever the code is being called.
+What should be visible to the generator code:
+- Input arguments, So far defined variables, results.
+- Structures and types, lengths of given arrays.
+- External arguments from the frontend / wherever the code is being called from.
 
 
 * We need to at least consider how async routines could be handled and if we need to think of anything special.
