@@ -6,7 +6,8 @@
 X 17:50 = 15 min
 
 NEXT:
-- Add foreign pointer support to vm.
+- Add foreign pointer support to VM.
+- Split CZ, CZEASY, CZ2VM and tests into separate files.
 - Add bounds checks to the vm_run method.
 - Debug information for the instructions.
 

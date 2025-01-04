@@ -45,3 +45,6 @@ print(args = ...)
 Input arguments, So far defined variables, results.
 Structures and types, lengths of given arrays.
 External arguments from the frontend / wherever the code is being called.
+
+
+* We need to at least consider how async routines could be handled and if we need to think of anything special.
