@@ -1,11 +1,9 @@
 
-12:08 Split CZ, CZEASY, CZ2VM into separate files.
-  - Forgot to do the ETA. Maybe for the better.
-  - Also went to the store in the middle of it.
-  X 13:33 = 1'25
+16:52 Create a test framework so that we can be more sure of made changes.
+  - ETA: 1.5h
+  X 18:10 ~ 2h
 
 NEXT:
-- Separate tests so that they can all run in at once.
 - Add foreign pointer support to VM.
 - Add bounds checks to the vm_run method.
 - Debug information for the instructions.

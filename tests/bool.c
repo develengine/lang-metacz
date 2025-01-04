@@ -18,18 +18,25 @@ main(void)
     vm_mem_buf_t code = {0};
     vm_mem_buf_t *c = &code;
 
+    cz_t cz_ctx = {0};
+    cz_t *cz = &cz_ctx;
 
-    printf("Disassembly:\n");
-    vm_disassemble(c);
-    printf("End of disassambly.\n");
+    CZ_FUNC(cz, test_func) {
+        CZ_IMM_INT(cz, 1);
+        CZ_IMM_INT(cz, 2);
+        CZ_OP(cz, LT);
+        CZ_PRINT(cz);
+
+        CZ_COW(cz);
+    }
+
+    cz2vm_compile(cz, test_func, c);
 
     ptrdiff_t data_size = 4096;
     unsigned char *data = malloc(data_size);
     UTILS_ASSERT(data);
 
-    *(int*)data = 10;
     vm_run(c, data, data_size);
 
     return 0;
 }
-

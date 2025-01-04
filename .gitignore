@@ -2,7 +2,7 @@ program
 *.exe
 *.exe.old
 *.obj
-tests
+tests/bin
 build
 build.old
 sesh
