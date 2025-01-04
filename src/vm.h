@@ -166,6 +166,7 @@ typedef struct
 
     /* extensions */
     float floats[2];
+    unsigned char *fptr;
 } vm_regs_t;
 
 typedef UTILS_STRETCHY_T (unsigned char, ptrdiff_t) vm_mem_buf_t;
@@ -370,6 +371,7 @@ vm_inst_memmove(vm_mem_buf_t *code, ptrdiff_t dst, ptrdiff_t src, ptrdiff_t size
 #endif // VM_H_
 
 #ifdef VM_IMPL
+#undef VM_IMPL
 
 void
 vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)

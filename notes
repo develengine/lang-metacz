@@ -1,15 +1,15 @@
 
-17:35 Make it possible to pass parameters to initial functions.
-+ Don't emit alignment operations if they aren't necessary.
-+ Don't assume the initial function hasn't been compiled already.
-- ETA: 1.5h
-X 17:50 = 15 min
+12:08 Split CZ, CZEASY, CZ2VM into separate files.
+  - Forgot to do the ETA. Maybe for the better.
+  - Also went to the store in the middle of it.
+  X 13:33 = 1'25
 
 NEXT:
+- Separate tests so that they can all run in at once.
 - Add foreign pointer support to VM.
-- Split CZ, CZEASY, CZ2VM and tests into separate files.
 - Add bounds checks to the vm_run method.
 - Debug information for the instructions.
+- Strip out the bld from core and remove core from the main repo.
 
 
 

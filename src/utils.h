@@ -102,7 +102,7 @@ do {                                                                            
     }                                                                                   \
 } while (0)
 
-#define UTILS_STRETCHY_HOSE(stretchy, id_field_name, id) \
-    utils_hopeful_search((stretchy).data, sizeof((stretchy).data[0]), (stretchy).count, (unsigned char *)(&((stretchy).data)->id_field_name) - (unsigned char *)((stretchy).data), id)
+#define UTILS_STRETCHY_HOSE(dck, id_field_name, id) \
+    utils_hopeful_search((dck).data, sizeof((dck).data[0]), (dck).count, (unsigned char *)(&((dck).data)->id_field_name) - (unsigned char *)((dck).data), id)
 
 #endif // UTILS_H_
