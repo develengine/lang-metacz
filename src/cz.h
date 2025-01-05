@@ -25,7 +25,6 @@ typedef enum
     cz_type_Int,
     cz_type_Char,
     cz_type_Bool,
-
     cz_type_Float,
 } cz_type_t;
 

@@ -1,7 +1,7 @@
 
 
 NEXT:
-- Add foreign pointer support to VM.
+- Implement references.
 - Add bounds checks to the vm_run method.
 - Debug information for the instructions.
 - Strip out the bld from core and remove core from the main repo.
