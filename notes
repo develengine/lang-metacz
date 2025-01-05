@@ -1,8 +1,10 @@
 
-- Add support for structures.
+14:04 Add support for structures.
+- Implement references.
+X 21:05 = 7h
 
 NEXT:
-- Implement references.
+- Make sure references can't be returned from procedures.
 - Add bounds checks to the vm_run method.
 - Debug information for the instructions.
 - Strip out the bld from core and remove core from the main repo.

@@ -114,18 +114,42 @@
 
 #define CZ_VAR(cz, type_sf) \
 ( \
-    cz_add_variable((cz), ++((cz)->last_var), cz_type_##type_sf), \
+    cz_add_variable((cz), ++((cz)->last_var), (cz_type_t) { \
+        .type = cz_type_type_Leaf, \
+        .leaf = cz_type_##type_sf, \
+    }), \
+    (cz)->last_var \
+)
+
+#define CZ_VAR_TYPE(cz, type) \
+( \
+    cz_add_variable((cz), ++((cz)->last_var), type), \
     (cz)->last_var \
 )
 
 #define CZ_IN(cz, type_sf) \
 ( \
-    cz_add_input((cz), ++((cz)->last_in), cz_type_##type_sf), \
+    cz_add_input((cz), ++((cz)->last_in), (cz_type_t) { \
+        .type = cz_type_type_Leaf, \
+        .leaf = cz_type_##type_sf, \
+    }), \
+    (cz)->last_in \
+)
+
+#define CZ_IN_TYPE(cz, type) \
+( \
+    cz_add_input((cz), ++((cz)->last_in), type), \
     (cz)->last_in \
 )
 
 #define CZ_RES(cz, type_sf) \
-    cz_add_result((cz), cz_type_##type_sf)
+    cz_add_result((cz), (cz_type_t) { \
+        .type = cz_type_type_Leaf, \
+        .leaf = cz_type_##type_sf, \
+    })
+
+#define CZ_RES_TYPE(cz, type) \
+    cz_add_result((cz), type)
 
 #define CZ_LOAD(cz, mem_sf, var_id) \
     cz_emit_inst((cz), (cz_inst_t) { \

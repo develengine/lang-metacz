@@ -80,13 +80,13 @@ test_target(i32 argc, char *argv[])
 
         res = bld_execute("./%s > %s", output, dest_file);
         if (res != 0) {
-            printf("[FAILURE] %s returned status code '%d'!\n", test.name, res);
+            printf("[FAILURE] Test '%s' returned status code '%d'!\n", test.name, res);
             return res;
         }
 
         if (checking) {
             if (!files_equal(check_file, dest_file)) {
-                fprintf(stderr, "[FAILURE] %s has different output!\n", test.name);
+                fprintf(stderr, "[FAILURE] Test '%s' has different output!\n", test.name);
                 return 1;
             }
 

@@ -16,17 +16,15 @@ typedef enum
     cz_inst_Load,
     cz_inst_Store,
     cz_inst_Call,
+
+    cz_inst_Ref,
+    cz_inst_Select,
+    cz_inst_Deref,
+    cz_inst_Set,
+
     cz_inst_Print,
     cz_inst_Cow,
 } cz_inst_type_t;
-
-typedef enum
-{
-    cz_type_Int,
-    cz_type_Char,
-    cz_type_Bool,
-    cz_type_Float,
-} cz_type_t;
 
 typedef enum
 {
@@ -50,11 +48,27 @@ typedef enum
     cz_mem_In,
 } cz_mem_type_t;
 
+typedef enum
+{
+    cz_type_Int,
+    cz_type_Char,
+    cz_type_Bool,
+    cz_type_Float,
+} cz_type_leaf_t;
+
+typedef enum
+{
+    cz_type_type_Leaf,
+    cz_type_type_Struct,
+} cz_type_type_t;
+
 typedef unsigned cz_scope_t;
 typedef unsigned cz_label_t;
 typedef unsigned cz_var_t;
 typedef unsigned cz_func_t;
 typedef unsigned cz_in_t;
+// typedef unsigned cz_type_id_t;
+typedef unsigned cz_entry_id_t;
 
 typedef struct
 {
@@ -62,7 +76,7 @@ typedef struct
 
     union {
         struct {
-            cz_type_t type;
+            cz_type_leaf_t type;
             union {
                 int   as_int;
                 float as_float;
@@ -105,10 +119,31 @@ typedef struct
         struct {
             cz_func_t func;
         } call;
+
+        struct {
+            cz_mem_type_t mem_type;
+            union {
+                cz_var_t var;
+                cz_in_t  in;
+            };
+        } ref;
+
+        struct {
+            cz_entry_id_t entry_id;
+        } select;
     };
 } cz_inst_t;
 
 typedef UTILS_STRETCHY_T (cz_inst_t, unsigned) cz_code_t;
+
+typedef struct
+{
+    cz_type_type_t type;
+    union {
+        cz_type_leaf_t leaf;
+        unsigned struct_index;
+    };
+} cz_type_t;
 
 typedef struct
 {
@@ -154,12 +189,31 @@ typedef UTILS_STRETCHY_T (cz_function_t, unsigned) cz_functions_t;
 
 typedef struct
 {
+    unsigned entry_offset;
+    unsigned entry_count;
+} cz_type_struct_t;
+
+typedef UTILS_STRETCHY_T (cz_type_struct_t, unsigned) cz_type_structs_t;
+
+typedef struct
+{
+    cz_type_t type;
+} cz_struct_entry_t;
+
+typedef UTILS_STRETCHY_T (cz_struct_entry_t, unsigned) cz_struct_entries_t;
+
+typedef struct
+{
     cz_code_t      code;
     cz_variables_t variables;
     cz_inputs_t    inputs;
     cz_results_t   results;
     cz_functions_t functions;
 
+    cz_struct_entries_t struct_entries;
+    cz_type_structs_t   structs;
+
+    // TODO: Rethink the identifier situation.
     cz_scope_t last_scope;
     cz_label_t last_label;
     cz_var_t   last_var;
@@ -211,7 +265,7 @@ cz_function_begin(cz_t *cz, cz_func_t func)
     });
 }
 
-void
+static inline void
 cz_function_end(cz_t *cz, cz_func_t func)
 {
     UTILS_ASSERT(cz->functions.count > 0);
@@ -224,6 +278,45 @@ cz_function_end(cz_t *cz, cz_func_t func)
     function->variable_count = cz->variables.count - function->variable_offset;
     function->input_count    = cz->inputs.count    - function->input_offset;
     function->result_count   = cz->results.count   - function->result_offset;
+}
+
+static inline cz_entry_id_t
+cz_add_entry(cz_t *cz, cz_type_t type)
+{
+    UTILS_ASSERT(cz->structs.count > 0);
+
+    cz_type_struct_t *type_struct = cz->structs.data + cz->structs.count - 1;
+
+    cz_entry_id_t entry_id = type_struct->entry_count++;
+
+    UTILS_STRETCHY_PUSH(cz->struct_entries, (cz_struct_entry_t) {
+        .type = type,
+    });
+
+    return entry_id;
+}
+
+static inline cz_type_t
+cz_struct_begin(cz_t *cz)
+{
+    cz_type_t type = {
+        .type = cz_type_type_Struct,
+        .struct_index = cz->structs.count,
+    };
+
+    UTILS_STRETCHY_PUSH(cz->structs, (cz_type_struct_t) {
+        .entry_offset = cz->struct_entries.count,
+    });
+
+    return type;
+}
+
+static inline void
+cz_struct_end(cz_t *cz, cz_type_t type)
+{
+    UTILS_ASSERT(type.type         == cz_type_type_Struct);
+    UTILS_ASSERT(cz->structs.count > 0);
+    UTILS_ASSERT(type.struct_index == cz->structs.count - 1);
 }
 
 static inline const char *
@@ -241,6 +334,10 @@ cz_inst_type_name(cz_inst_type_t inst_type)
         case cz_inst_Load:       return "load";
         case cz_inst_Store:      return "store";
         case cz_inst_Call:       return "call";
+        case cz_inst_Ref:        return "ref";
+        case cz_inst_Select:     return "select";
+        case cz_inst_Deref:      return "deref";
+        case cz_inst_Set:        return "set";
         case cz_inst_Print:      return "print";
         case cz_inst_Cow:        return "cow";
     }

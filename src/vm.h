@@ -23,6 +23,9 @@ typedef enum
     vm_inst_Jmp,      // [off]
     vm_inst_JmpIf,    // [off]
     vm_inst_MemMove,  // [dst] [src] [size]
+
+    vm_inst_LoadMem,  // [dst] [size]
+    vm_inst_StoreMem, // [src] [size]
 } vm_inst_t;
 
 typedef enum
@@ -346,6 +349,22 @@ vm_inst_load(vm_mem_buf_t *code, vm_reg_type_t reg_type, unsigned ind)
     vm_inst_load(code, vm_reg_##reg_sf, ind)
 
 static inline void
+vm_inst_store_mem(vm_mem_buf_t *code, ptrdiff_t src, ptrdiff_t size)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_StoreMem);
+    (void)VM_MEM_BUF_PUSH(code, ptrdiff_t, src);
+    (void)VM_MEM_BUF_PUSH(code, ptrdiff_t, size);
+}
+
+static inline void
+vm_inst_load_mem(vm_mem_buf_t *code, ptrdiff_t dst, ptrdiff_t size)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_LoadMem);
+    (void)VM_MEM_BUF_PUSH(code, ptrdiff_t, dst);
+    (void)VM_MEM_BUF_PUSH(code, ptrdiff_t, size);
+}
+
+static inline void
 vm_inst_call(vm_mem_buf_t *code, ptrdiff_t address)
 {
     (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_Call);
@@ -376,6 +395,9 @@ void
 vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
 {
     (void)data_size;
+
+    if (code->count == 0)
+        return;
 
     vm_regs_t regs = {0};
 
@@ -426,6 +448,20 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                 vm_align(&regs.ip, mem.alignment);
                 memcpy(data + regs.bp + regs.ptrs[0], code->data + regs.ip, mem.size);
                 regs.ip += mem.size;
+            } break;
+
+            case vm_inst_LoadMem: {
+                ptrdiff_t dst  = VM_MEM_GET(code->data, &regs.ip, ptrdiff_t);
+                ptrdiff_t size = VM_MEM_GET(code->data, &regs.ip, ptrdiff_t);
+
+                memcpy(data + regs.bp + dst, data + regs.bp + regs.ptrs[0], size);
+            } break;
+
+            case vm_inst_StoreMem: {
+                ptrdiff_t src  = VM_MEM_GET(code->data, &regs.ip, ptrdiff_t);
+                ptrdiff_t size = VM_MEM_GET(code->data, &regs.ip, ptrdiff_t);
+
+                memcpy(data + regs.bp + regs.ptrs[0], data + regs.bp + src, size);
             } break;
 
             case vm_inst_Load: {
@@ -883,6 +919,20 @@ vm_disassemble(vm_mem_buf_t *code)
             case vm_inst_StoreImm: {
                 vm_inst_mem_t mem = VM_MEM_GET(code->data, &ip, vm_inst_mem_t);
                 printf("store_imm (alignment: %ld, size: %ld)\n", mem.alignment, mem.size);
+            } break;
+
+            case vm_inst_LoadMem: {
+                ptrdiff_t dst  = VM_MEM_GET(code->data, &ip, ptrdiff_t);
+                ptrdiff_t size = VM_MEM_GET(code->data, &ip, ptrdiff_t);
+
+                printf("load_mem (dst: %ld, size: %ld)\n", dst, size);
+            } break;
+
+            case vm_inst_StoreMem: {
+                ptrdiff_t src  = VM_MEM_GET(code->data, &ip, ptrdiff_t);
+                ptrdiff_t size = VM_MEM_GET(code->data, &ip, ptrdiff_t);
+
+                printf("load_mem (src: %ld, size: %ld)\n", src, size);
             } break;
 
             case vm_inst_Load: {
