@@ -96,6 +96,7 @@ test_target(i32 argc, char *argv[])
     }
 
     printf("%ld test(s) passed succesfully!\n", BLD_LEN(tests));
+    return 0;
 }
 
 i32

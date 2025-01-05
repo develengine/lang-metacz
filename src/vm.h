@@ -166,7 +166,6 @@ typedef struct
 
     /* extensions */
     float floats[2];
-    unsigned char *fptr;
 } vm_regs_t;
 
 typedef UTILS_STRETCHY_T (unsigned char, ptrdiff_t) vm_mem_buf_t;

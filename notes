@@ -1,7 +1,4 @@
 
-16:52 Create a test framework so that we can be more sure of made changes.
-  - ETA: 1.5h
-  X 18:10 ~ 2h
 
 NEXT:
 - Add foreign pointer support to VM.
