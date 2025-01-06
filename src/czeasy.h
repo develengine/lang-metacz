@@ -169,6 +169,33 @@
         }, \
     })
 
+#define CZ_REF(cz, mem_sf, var_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Ref, \
+        .ref = { \
+            .mem_type = cz_mem_##mem_sf, \
+            .var      = (var_id), /* TODO: this should be done differently */ \
+        }, \
+    })
+
+#define CZ_SELECT(cz, ent_id) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Select, \
+        .select = { \
+            .entry_id = (ent_id), \
+        }, \
+    })
+
+#define CZ_DEREF(cz) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Deref, \
+    })
+
+#define CZ_SET(cz) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Set, \
+    })
+
 #define CZ_CALL(cz, func_id) \
     cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Call, \
@@ -176,6 +203,8 @@
             .func = func_id, \
         }, \
     })
+
+#define CZ_LEAF(type_sf) ((cz_type_t) { .type = cz_type_type_Leaf, .leaf = cz_type_##type_sf })
 
 #endif // CZEASY_H_
 

@@ -48,6 +48,7 @@ test_target(i32 argc, char *argv[])
         { .name = "variable" },
         { .name = "input" },
         { .name = "return" },
+        { .name = "struct" },
     };
 
     for (u32 i = 0; i < BLD_LEN(tests); ++i) {

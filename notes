@@ -1,7 +1,6 @@
 
-14:04 Add support for structures.
-- Implement references.
-X 21:05 = 7h
+12:39 - Create cheasy macros for the structure and reference instructions.
+X 13:04 = 23min
 
 NEXT:
 - Make sure references can't be returned from procedures.
