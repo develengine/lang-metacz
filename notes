@@ -1,9 +1,11 @@
 
-12:39 - Create cheasy macros for the structure and reference instructions.
-X 13:04 = 23min
+11:44 - The way we get next id needs to be simplified.
+- Except for labels, everything was EZ and obvious.
+X 11:59
 
 NEXT:
 - Make sure references can't be returned from procedures.
+- Rethink the label situation.
 - Add bounds checks to the vm_run method.
 - Debug information for the instructions.
 - Strip out the bld from core and remove core from the main repo.

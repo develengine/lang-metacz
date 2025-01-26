@@ -22,8 +22,6 @@ main(void)
     cz_t *cz = &cz_data;
     
 
-    cz2vm_compile(cz, main_func, c);
-
     printf("Disassembly:\n");
     vm_disassemble(c);
     printf("End of disassambly.\n");

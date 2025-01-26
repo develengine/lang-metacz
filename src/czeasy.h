@@ -4,8 +4,8 @@
 #include "cz.h"
 
 #define CZ_FUNC(cz, func_ident) \
-    cz_func_t func_ident = ++((cz)->last_func); \
-    for (bool __done_##__LINE__ = (cz_function_begin((cz), func_ident), false); \
+    cz_func_t func_ident = cz_function_begin(cz); \
+    for (bool __done_##__LINE__ = false; \
          !__done_##__LINE__; \
          cz_function_end((cz), func_ident), __done_##__LINE__ = true)
 
@@ -113,34 +113,22 @@
     })
 
 #define CZ_VAR(cz, type_sf) \
-( \
-    cz_add_variable((cz), ++((cz)->last_var), (cz_type_t) { \
+    cz_add_variable((cz), (cz_type_t) { \
         .type = cz_type_type_Leaf, \
         .leaf = cz_type_##type_sf, \
-    }), \
-    (cz)->last_var \
-)
+    })
 
 #define CZ_VAR_TYPE(cz, type) \
-( \
-    cz_add_variable((cz), ++((cz)->last_var), type), \
-    (cz)->last_var \
-)
+    cz_add_variable((cz), type)
 
 #define CZ_IN(cz, type_sf) \
-( \
-    cz_add_input((cz), ++((cz)->last_in), (cz_type_t) { \
+    cz_add_input((cz), (cz_type_t) { \
         .type = cz_type_type_Leaf, \
         .leaf = cz_type_##type_sf, \
-    }), \
-    (cz)->last_in \
-)
+    })
 
 #define CZ_IN_TYPE(cz, type) \
-( \
-    cz_add_input((cz), ++((cz)->last_in), type), \
-    (cz)->last_in \
-)
+    cz_add_input((cz), type)
 
 #define CZ_RES(cz, type_sf) \
     cz_add_result((cz), (cz_type_t) { \

@@ -213,12 +213,7 @@ typedef struct
     cz_struct_entries_t struct_entries;
     cz_type_structs_t   structs;
 
-    // TODO: Rethink the identifier situation.
-    cz_scope_t last_scope;
-    cz_label_t last_label;
-    cz_var_t   last_var;
-    cz_func_t  last_func;
-    cz_in_t    last_in;
+    cz_label_t last_label; // TODO: Rethink this.
 } cz_t;
 
 static inline void
@@ -227,22 +222,37 @@ cz_emit_inst(cz_t *cz, cz_inst_t inst)
     UTILS_STRETCHY_PUSH(cz->code, inst);
 }
 
-static inline void
-cz_add_variable(cz_t *cz, cz_var_t var, cz_type_t type)
+static inline cz_function_t *
+cz_get_top_func(cz_t *cz)
 {
+    UTILS_ASSERT(cz->functions.count > 0);
+    return cz->functions.data + cz->functions.count - 1;
+}
+
+static inline cz_var_t
+cz_add_variable(cz_t *cz, cz_type_t type)
+{
+    cz_var_t var = cz->variables.count - cz_get_top_func(cz)->variable_offset;
+
     UTILS_STRETCHY_PUSH(cz->variables, (cz_variable_t) {
         .var  = var,
         .type = type,
     });
+
+    return var;
 }
 
-static inline void
-cz_add_input(cz_t *cz, cz_in_t in, cz_type_t type)
+static inline cz_in_t
+cz_add_input(cz_t *cz, cz_type_t type)
 {
+    cz_in_t in = cz->inputs.count - cz_get_top_func(cz)->input_offset;
+
     UTILS_STRETCHY_PUSH(cz->inputs, (cz_input_t) {
         .in   = in,
         .type = type,
     });
+
+    return in;
 }
 
 static inline void
@@ -253,9 +263,11 @@ cz_add_result(cz_t *cz, cz_type_t type)
     });
 }
 
-static inline void
-cz_function_begin(cz_t *cz, cz_func_t func)
+static inline cz_func_t
+cz_function_begin(cz_t *cz)
 {
+    cz_func_t func = cz->functions.count;
+
     UTILS_STRETCHY_PUSH(cz->functions, (cz_function_t) {
         .func            = func,
         .code_offset     = cz->code.count,
@@ -263,6 +275,8 @@ cz_function_begin(cz_t *cz, cz_func_t func)
         .input_offset    = cz->inputs.count,
         .result_offset   = cz->results.count,
     });
+
+    return func;
 }
 
 static inline void
