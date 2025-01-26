@@ -238,6 +238,16 @@ cz2vm_type_mem_info(cz2vm_t *cz2vm, cz_t *cz, cz_type_t type)
         };
     }
 
+    if (type.type == cz_type_type_Array) {
+        cz_type_array_t array = cz->arrays.data[type.array_index];
+        cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, array.type);
+
+        return (cz2vm_mem_info_t) {
+            .size      = mem_info.size * array.length,
+            .alignment = mem_info.alignment,
+        };
+    }
+
     if (type.type == cz_type_type_Struct) {
         cz2vm_struct_t *struc = UTILS_STRETCHY_HOSE(cz2vm->structs, struct_index, type.struct_index);
         if (struc)
@@ -1049,6 +1059,41 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                 });
             } break;
 
+            case cz_inst_Index: {
+                UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 2);
+
+                cz2vm_object_t ind_obj = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
+                cz2vm_object_t ref_obj = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
+
+                UTILS_ASSERT(!ind_obj.is_ref);
+                UTILS_ASSERT(ind_obj.type.type == cz_type_type_Leaf);
+                UTILS_ASSERT(ind_obj.type.leaf == cz_type_Int);
+                UTILS_ASSERT(ref_obj.is_ref == true);
+                UTILS_ASSERT(ref_obj.type.type == cz_type_type_Array);
+
+                cz_type_array_t array = cz->arrays.data[ref_obj.type.array_index];
+                cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, array.type);
+
+                VM_POP(code, Int, 0, cz2vm->sp - ref_obj.offset);
+                VM_IMM_INT(code, 1, mem_info.size);
+                VM_OP(code, Int, Mul);
+                VM_IMM_PTR(code, 0, ref_obj.offset);
+                vm_inst_load(code, vm_reg_Ptr, 0);
+                vm_inst_regmove(code, vm_reg_Ptr, 1, vm_reg_Int, 0);
+                VM_OP(code, Ptr, Add);
+                vm_inst_push(code, vm_reg_Ptr, 0, 0);
+
+                cz2vm->sp = ref_obj.offset;
+
+                UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
+                    .type    = array.type,
+                    .is_ref  = true,
+                    .prev_sp = ref_obj.prev_sp,
+                    .size    = ref_obj.size,
+                    .offset  = ref_obj.offset,
+                });
+            } break;
+
             case cz_inst_Set: {
                 UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 2);
 
@@ -1060,7 +1105,7 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
                 UTILS_ASSERT(ref_obj.type.type == val_obj.type.type);
                 UTILS_ASSERT(cz2vm_types_eq(val_obj.type, ref_obj.type));
 
-                VM_IMM_PTR(code, 0, val_obj.prev_sp);
+                VM_IMM_PTR(code, 0, ref_obj.offset);
                 vm_inst_load(code, vm_reg_Ptr, 0);
                 vm_inst_store_mem(code, cz2vm->sp, val_obj.size);
 

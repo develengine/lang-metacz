@@ -22,6 +22,8 @@ typedef enum
     cz_inst_Deref,
     cz_inst_Set,
 
+    cz_inst_Index,
+
     cz_inst_Print,
     cz_inst_Cow,
 } cz_inst_type_t;
@@ -60,6 +62,7 @@ typedef enum
 {
     cz_type_type_Leaf,
     cz_type_type_Struct,
+    cz_type_type_Array,
 } cz_type_type_t;
 
 typedef unsigned cz_scope_t;
@@ -142,6 +145,7 @@ typedef struct
     union {
         cz_type_leaf_t leaf;
         unsigned struct_index;
+        unsigned array_index;
     };
 } cz_type_t;
 
@@ -204,6 +208,14 @@ typedef UTILS_STRETCHY_T (cz_struct_entry_t, unsigned) cz_struct_entries_t;
 
 typedef struct
 {
+    cz_type_t type;
+    unsigned  length;
+} cz_type_array_t;
+
+typedef UTILS_STRETCHY_T (cz_type_array_t, unsigned) cz_type_arrays_t;
+
+typedef struct
+{
     cz_code_t      code;
     cz_variables_t variables;
     cz_inputs_t    inputs;
@@ -212,6 +224,7 @@ typedef struct
 
     cz_struct_entries_t struct_entries;
     cz_type_structs_t   structs;
+    cz_type_arrays_t    arrays;
 
     cz_label_t last_label; // TODO: Rethink this.
 } cz_t;
@@ -333,6 +346,22 @@ cz_struct_end(cz_t *cz, cz_type_t type)
     UTILS_ASSERT(type.struct_index == cz->structs.count - 1);
 }
 
+static inline cz_type_t
+cz_array(cz_t *cz, cz_type_t type, unsigned length)
+{
+    cz_type_t res = {
+        .type        = cz_type_type_Array,
+        .array_index = cz->arrays.count,
+    };
+
+    UTILS_STRETCHY_PUSH(cz->arrays, (cz_type_array_t) {
+        .type   = type,
+        .length = length,
+    });
+
+    return res;
+}
+
 static inline const char *
 cz_inst_type_name(cz_inst_type_t inst_type)
 {
@@ -352,6 +381,7 @@ cz_inst_type_name(cz_inst_type_t inst_type)
         case cz_inst_Select:     return "select";
         case cz_inst_Deref:      return "deref";
         case cz_inst_Set:        return "set";
+        case cz_inst_Index:      return "index";
         case cz_inst_Print:      return "print";
         case cz_inst_Cow:        return "cow";
     }

@@ -184,6 +184,11 @@
         .type = cz_inst_Set, \
     })
 
+#define CZ_INDEX(cz) \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Index, \
+    })
+
 #define CZ_CALL(cz, func_id) \
     cz_emit_inst((cz), (cz_inst_t) { \
         .type = cz_inst_Call, \

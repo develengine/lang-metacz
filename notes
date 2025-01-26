@@ -1,9 +1,12 @@
 
-11:44 - The way we get next id needs to be simplified.
-- Except for labels, everything was EZ and obvious.
-X 11:59
+13:30 - Implement arrays.
+X The whole day, because I didn't try to do it quickly...
 
 NEXT:
+- Use _Generic to implement store and load helpers.
+  - Make other macros for C99 comaptibility.
+  - Or create a 'cz_let_t' type to handle this.
+- Remove all the stupid hose shit.
 - Make sure references can't be returned from procedures.
 - Rethink the label situation.
 - Add bounds checks to the vm_run method.

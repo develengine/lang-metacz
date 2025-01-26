@@ -23,6 +23,7 @@ typedef enum
     vm_inst_Jmp,      // [off]
     vm_inst_JmpIf,    // [off]
     vm_inst_MemMove,  // [dst] [src] [size]
+    vm_inst_RegMove,  // [dst_reg] [src_reg]
 
     vm_inst_LoadMem,  // [dst] [size]
     vm_inst_StoreMem, // [src] [size]
@@ -386,6 +387,21 @@ vm_inst_memmove(vm_mem_buf_t *code, ptrdiff_t dst, ptrdiff_t src, ptrdiff_t size
     (void)VM_MEM_BUF_PUSH(code, ptrdiff_t, size);
 }
 
+static inline void
+vm_inst_regmove(vm_mem_buf_t *code, vm_reg_type_t dst_reg, unsigned dst_ind,
+                                    vm_reg_type_t src_reg, unsigned src_ind)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_RegMove);
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_reg_t, (vm_inst_reg_t) {
+        .type  = dst_reg,
+        .index = dst_ind,
+    });
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_reg_t, (vm_inst_reg_t) {
+        .type  = src_reg,
+        .index = src_ind,
+    });
+}
+
 #endif // VM_H_
 
 #ifdef VM_IMPL
@@ -598,6 +614,62 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                 memmove(data + regs.bp + dst,
                         data + regs.bp + src,
                         size);
+            } break;
+
+            case vm_inst_RegMove: {
+                vm_inst_reg_t dst_reg = VM_MEM_GET(code->data, &regs.ip, vm_inst_reg_t);
+                vm_inst_reg_t src_reg = VM_MEM_GET(code->data, &regs.ip, vm_inst_reg_t);
+
+                switch (dst_reg.type) {
+                    case vm_reg_Int: {
+                        switch (src_reg.type) {
+                            case vm_reg_Int:   regs.ints[dst_reg.index] =      regs.ints  [src_reg.index]; break;
+                            case vm_reg_Char:  regs.ints[dst_reg.index] = (int)regs.chars [src_reg.index]; break;
+                            case vm_reg_Ptr:   regs.ints[dst_reg.index] = (int)regs.ptrs  [src_reg.index]; break;
+                            case vm_reg_Float: regs.ints[dst_reg.index] = (int)regs.floats[src_reg.index]; break;
+                            default:
+                                fprintf(stderr, "Unsupported source register type for RegMove Int: %d\n", src_reg.type);
+                                exit(1);
+                        }
+                    } break;
+                    case vm_reg_Char: {
+                        switch (src_reg.type) {
+                            case vm_reg_Int:   regs.chars[dst_reg.index] = (char)regs.ints  [src_reg.index]; break;
+                            case vm_reg_Char:  regs.chars[dst_reg.index] =       regs.chars [src_reg.index]; break;
+                            case vm_reg_Ptr:   regs.chars[dst_reg.index] = (char)regs.ptrs  [src_reg.index]; break;
+                            case vm_reg_Float: regs.chars[dst_reg.index] = (char)regs.floats[src_reg.index]; break;
+                            default:
+                                fprintf(stderr, "Unsupported source register type for RegMove Char: %d\n", src_reg.type);
+                                exit(1);
+                        }
+                    } break;
+                    case vm_reg_Ptr: {
+                        switch (src_reg.type) {
+                            case vm_reg_Int:   regs.ptrs[dst_reg.index] = (ptrdiff_t)regs.ints  [src_reg.index]; break;
+                            case vm_reg_Char:  regs.ptrs[dst_reg.index] = (ptrdiff_t)regs.chars [src_reg.index]; break;
+                            case vm_reg_Ptr:   regs.ptrs[dst_reg.index] =            regs.ptrs  [src_reg.index]; break;
+                            case vm_reg_Float: regs.ptrs[dst_reg.index] = (ptrdiff_t)regs.floats[src_reg.index]; break;
+                            default:
+                                fprintf(stderr, "Unsupported source register type for RegMove Ptr: %d\n", src_reg.type);
+                                exit(1);
+                        }
+                    } break;
+                    case vm_reg_Float: {
+                        switch (src_reg.type) {
+                            case vm_reg_Int:   regs.floats[dst_reg.index] = (float)regs.ints  [src_reg.index]; break;
+                            case vm_reg_Char:  regs.floats[dst_reg.index] = (float)regs.chars [src_reg.index]; break;
+                            case vm_reg_Ptr:   regs.floats[dst_reg.index] = (float)regs.ptrs  [src_reg.index]; break;
+                            case vm_reg_Float: regs.floats[dst_reg.index] =        regs.floats[src_reg.index]; break;
+                            default:
+                                fprintf(stderr, "Unsupported source register type for RegMove Float: %d\n", src_reg.type);
+                                exit(1);
+                        }
+                    } break;
+
+                    default:
+                        fprintf(stderr, "Unsupported register type for RegMove: %d\n", dst_reg.type);
+                        exit(1);
+                }
             } break;
 
             case vm_inst_Op: {
