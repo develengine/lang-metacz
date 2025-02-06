@@ -1,0 +1,34 @@
+
+#f main
+{
+    #t array_type #array Int 20
+
+    #v var_1 array_type
+    #v counter Int
+
+    #b loop {
+    #l top
+        counter 20 <
+        #jmp body
+            #brk loop
+    #l body
+        &var_1 counter .@
+        counter 1 + 2 *
+        =
+        counter 1 + @counter
+        #true #jmp top
+    }
+
+    0 @counter
+
+    #b loop {
+    #l top
+        counter 20 <
+        #jmp body
+            #brk loop
+    #l body
+        &var_1 counter .@ .* #print
+        counter 1 + @counter
+        #true #jmp top
+    }
+}

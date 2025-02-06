@@ -19,6 +19,10 @@ main(void)
     vm_mem_buf_t *c = &code;
 
     cz_t cz_data = {0};
+
+    cz_debug_info_t debug_info = {0};
+    cz_data.debug_info = &debug_info;
+
     cz_t *cz = &cz_data;
     
     CZ_FUNC(cz, main_func) {
@@ -97,10 +101,12 @@ main(void)
         }
     }
 
-    cz2vm_compile(cz, main_func, c);
+    vm_debug_info_t vm_debug_info = {0};
+
+    cz2vm_compile(cz, main_func, c, &vm_debug_info);
 
     printf("Disassembly:\n");
-    vm_disassemble(c);
+    vm_disassemble(c, &vm_debug_info);
     printf("End of disassambly.\n");
 
     ptrdiff_t data_size = 4096;

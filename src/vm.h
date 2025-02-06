@@ -66,6 +66,40 @@ vm_type_name(vm_type_type_t type)
     return "<unknown type>";
 }
 
+static inline const char *
+vm_reg_name(vm_reg_type_t reg)
+{
+    switch (reg) {
+        case vm_reg_None:  return "none";
+        case vm_reg_Int:   return "int";
+        case vm_reg_Char:  return "char";
+        case vm_reg_Ptr:   return "ptr";
+        case vm_reg_BP:    return "bp";
+        case vm_reg_SP:    return "sp";
+        case vm_reg_IP:    return "ip";
+        case vm_reg_Float: return "float";
+    }
+
+    return "<unknown>";
+}
+
+static inline bool
+vm_reg_is_single(vm_reg_type_t reg)
+{
+    switch (reg) {
+        case vm_reg_None:  return true;
+        case vm_reg_Int:   return false;
+        case vm_reg_Char:  return false;
+        case vm_reg_Ptr:   return false;
+        case vm_reg_BP:    return true;
+        case vm_reg_SP:    return true;
+        case vm_reg_IP:    return true;
+        case vm_reg_Float: return false;
+    }
+
+    return true;
+}
+
 typedef enum
 {
     vm_op_Add,
@@ -174,9 +208,26 @@ typedef struct
 
 typedef UTILS_STRETCHY_T (unsigned char, ptrdiff_t) vm_mem_buf_t;
 
+typedef struct
+{
+    ptrdiff_t code_offset;
+    unsigned line_position;
+    const char *file_path;
+} vm_debug_line_t;
+
+typedef UTILS_STRETCHY_T (vm_debug_line_t, unsigned) vm_debug_lines_t;
+
+typedef struct
+{
+    vm_debug_lines_t lines;
+} vm_debug_info_t;
+
 
 void
 vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size);
+
+void
+vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info);
 
 static inline void
 vm_link(vm_mem_buf_t *code, unsigned from, unsigned to)
@@ -934,13 +985,58 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
 }
 
 void
-vm_disassemble(vm_mem_buf_t *code)
+vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 {
     ptrdiff_t ip = 0;
+
+    unsigned debug_line_index = 0;
+
+    struct {
+        const char *file_path;
+        utils_file_lines_t file_lines;
+    } debug_files[10] = {0};
+
+    unsigned debug_file_count = 0;
 
     for (;;) {
         if (ip >= code->count)
             return;
+
+        if (debug_info) {
+            vm_debug_line_t *debug_line = NULL;
+
+            for (;;) {
+                if (debug_line_index >= debug_info->lines.count)
+                    break;
+
+                debug_line = debug_info->lines.data + debug_line_index;
+
+                if (debug_line->code_offset >= ip)
+                    break;
+
+                ++debug_line_index;
+            }
+
+            if (debug_line && debug_line->code_offset == ip) {
+                printf("\n# %s:%d", debug_line->file_path, debug_line->line_position);
+
+                unsigned i = 0;
+                for (; i < debug_file_count; ++i) {
+                    if (utils_str_eq(debug_files[i].file_path, debug_line->file_path))
+                        break;
+                }
+                if (i < UTILS_LEN(debug_files)) {
+                    if (i == debug_file_count) {
+                        debug_files[i].file_path  = debug_line->file_path;
+                        debug_files[i].file_lines = utils_file_lines_create(debug_line->file_path);
+                    }
+
+                    printf("\n# `%s`", utils_file_lines_get(&(debug_files[i].file_lines), debug_line->line_position - 1));
+                }
+
+                printf("\n");
+            }
+        }
 
         vm_align(&ip, _Alignof(vm_inst_t));
         printf("%04ld  ", ip);
@@ -1154,6 +1250,21 @@ vm_disassemble(vm_mem_buf_t *code)
                         dst, src, size);
             } break;
 
+            case vm_inst_RegMove: {
+                vm_inst_reg_t dst_reg = VM_MEM_GET(code->data, &ip, vm_inst_reg_t);
+                vm_inst_reg_t src_reg = VM_MEM_GET(code->data, &ip, vm_inst_reg_t);
+
+                printf("reg_move %s", vm_reg_name(dst_reg.type));
+                if (!vm_reg_is_single(dst_reg.type)) {
+                    printf("[%d]", dst_reg.index);
+                }
+                printf(" %s", vm_reg_name(src_reg.type));
+                if (!vm_reg_is_single(src_reg.type)) {
+                    printf("[%d]", src_reg.index);
+                }
+                printf("\n");
+            } break;
+
             case vm_inst_Op: {
                 vm_inst_op_t op = VM_MEM_GET(code->data, &ip, vm_inst_op_t);
 
@@ -1236,6 +1347,10 @@ vm_disassemble(vm_mem_buf_t *code)
             default:
                 printf("unknown (%u)\n", inst);
         }
+    }
+
+    for (unsigned i = 0; i < debug_file_count; ++i) {
+        utils_file_lines_free(&(debug_files[i].file_lines));
     }
 }
 

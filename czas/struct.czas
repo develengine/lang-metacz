@@ -1,0 +1,22 @@
+
+#s Struct_1
+{
+    a int
+    b float
+}
+
+#f main
+{
+    #v var_1 Struct_1
+
+    &var_1 .a 123    =
+    &var_1 .b 0f6.66 =
+
+    ## a commet
+    ## an inline comment ##
+
+    &var_1 .b .* #print
+    &var_1 .a .* #print
+}
+
+

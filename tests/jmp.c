@@ -30,7 +30,7 @@ main(void)
         CZ_COW(cz);
     }
 
-    cz2vm_compile(cz, test_func, c);
+    cz2vm_compile(cz, test_func, c, NULL);
 
     ptrdiff_t data_size = 4096;
     unsigned char *data = malloc(data_size);

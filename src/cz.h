@@ -216,6 +216,31 @@ typedef UTILS_STRETCHY_T (cz_type_array_t, unsigned) cz_type_arrays_t;
 
 typedef struct
 {
+    unsigned code_offset;
+    unsigned line_position;
+} cz_debug_line_t;
+
+typedef UTILS_STRETCHY_T (cz_debug_line_t, unsigned) cz_debug_lines_t;
+
+typedef struct
+{
+    const char *file_name;
+    unsigned code_offset;
+    cz_func_t func;
+    unsigned line_offset;
+    unsigned line_count;
+} cz_debug_function_t;
+
+typedef UTILS_STRETCHY_T (cz_debug_function_t, unsigned) cz_debug_functions_t;
+
+typedef struct
+{
+    cz_debug_lines_t     lines;
+    cz_debug_functions_t functions;
+} cz_debug_info_t;
+
+typedef struct
+{
     cz_code_t      code;
     cz_variables_t variables;
     cz_inputs_t    inputs;
@@ -225,6 +250,8 @@ typedef struct
     cz_struct_entries_t struct_entries;
     cz_type_structs_t   structs;
     cz_type_arrays_t    arrays;
+
+    cz_debug_info_t *debug_info;
 
     cz_label_t last_label; // TODO: Rethink this.
 } cz_t;
@@ -387,6 +414,42 @@ cz_inst_type_name(cz_inst_type_t inst_type)
     }
 
     return "<unknown_inst_type>";
+}
+
+static inline void
+cz_debug_function(cz_t *cz, cz_func_t func, const char *file_name)
+{
+    if (!cz->debug_info)
+        return;
+
+    UTILS_STRETCHY_PUSH(cz->debug_info->functions, (cz_debug_function_t) {
+        .file_name   = file_name,
+        .code_offset = cz->code.count,
+        .func        = func,
+        .line_offset = cz->debug_info->lines.count,
+    });
+}
+
+static inline void
+cz_debug_line(cz_t *cz, unsigned line_position)
+{
+    if (!cz->debug_info)
+        return;
+
+    UTILS_ASSERT(cz->debug_info->functions.count > 0);
+
+    cz_debug_function_t *func = cz->debug_info->functions.data + cz->debug_info->functions.count - 1;
+
+    if (func->line_count == 0
+     || cz->debug_info->lines.data[cz->debug_info->lines.count - 1].line_position != line_position)
+    {
+        UTILS_STRETCHY_PUSH(cz->debug_info->lines, (cz_debug_line_t) {
+            .line_position = line_position,
+            .code_offset   = cz->code.count,
+        });
+
+        func->line_count++;
+    }
 }
 
 #endif // CZ_H_

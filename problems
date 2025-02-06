@@ -1,10 +1,27 @@
 
+
+Assembler syntax?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 proper:
 - Access to type information of the expressions' call (in a generator).
   - i32 a = 6 + gen(123)
 - 
-
-
 
 A list of problems that a programming language should enable solving:
 

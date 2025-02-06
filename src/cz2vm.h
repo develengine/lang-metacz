@@ -6,7 +6,7 @@
 #include "cz.h"
 
 void
-cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code);
+cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code, vm_debug_info_t *debug_info);
 
 #endif // CZ2VM_H_
 
@@ -573,7 +573,7 @@ cz2vm_get_func_def(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, cz2vm_func_def_t *f
 }
 
 static void
-cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
+cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 {
     cz_function_t *function = UTILS_STRETCHY_HOSE(cz->functions, func, func);
     UTILS_ASSERT(function);
@@ -601,8 +601,40 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
     }
     cz2vm->sp = func_def.meta_size + func_def.var_size;
 
+    cz_debug_function_t *debug_function = NULL;
+    unsigned debug_line_index = 0;
+
+    if (debug_info && cz->debug_info) {
+        debug_function = UTILS_STRETCHY_HOSE(cz->debug_info->functions, func, func);
+    }
+
     for (unsigned inst_i = 0; inst_i < function->code_count; ++inst_i) {
-        cz_inst_t *inst = cz->code.data + function->code_offset + inst_i;
+        unsigned code_position = function->code_offset + inst_i;
+        cz_inst_t *inst = cz->code.data + code_position;
+
+        if (debug_info && cz->debug_info && debug_function) {
+            cz_debug_line_t *debug_line = NULL;
+
+            for (;;) {
+                 if (debug_line_index >= debug_function->line_count)
+                     break;
+
+                debug_line = cz->debug_info->lines.data + debug_function->line_offset + debug_line_index;
+
+                if (debug_line->code_offset >= code_position)
+                    break;
+
+                ++debug_line_index;
+            }
+
+            if (debug_line && debug_line->code_offset == code_position) {
+                UTILS_STRETCHY_PUSH(debug_info->lines, (vm_debug_line_t) {
+                    .code_offset   = code->count,
+                    .line_position = debug_line->line_position,
+                    .file_path     = debug_function->file_name,
+                });
+            }
+        }
 
         switch (inst->type) {
             case cz_inst_Halt: {
@@ -1179,7 +1211,7 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
 }
 
 void
-cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
+cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 {
     static cz2vm_t cz2vm_val = {0};
     cz2vm_t *cz2vm = &cz2vm_val;
@@ -1212,7 +1244,7 @@ cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code)
 
     while (cz2vm->todo_funcs.count != 0) {
         cz_func_t func = cz2vm->todo_funcs.data[--(cz2vm->todo_funcs.count)];
-        cz2vm_compile_func(cz2vm, cz, func, code);
+        cz2vm_compile_func(cz2vm, cz, func, code, debug_info);
     }
 
     for (unsigned i = 0; i < cz2vm->func_patches.count; ++i) {

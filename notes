@@ -1,6 +1,26 @@
 
-13:30 - Implement arrays.
-X The whole day, because I didn't try to do it quickly...
+[X] Debug information for the instructions.
+  X 09:00 - 11:13
+
+OPTIONS:
+[ ] Implement ways to put methods on types and so on.
+
+[ ] We must tear out the static cz2vm state from the compile method.
+[ ] Add views (aka. fat references).
+[ ] Implement memory safe checks and passing.
+[ ] Implement stretchy arrays.
+[ ] Implement the assembler.
+  [ ] Standardize the binary format for the metacz.
+    - Maybe there would be an opaque format for the code, but with the memory extension it would be exposed.
+[ ] Implement the memory extension.
+[ ] Implement a file io extension.
+
+Memory Extension:
+[ ] Add a byte type.
+[ ] Allow everything to be reinterpreted in terms of bytes.
+[ ] Provide size and alignment members/methods for types.
+[ ] Expose some way of allocating memory from the OS (more direct then malloc/free).
+?[ ] Expose an allocator API that can be used instead of the default allocation method.
 
 NEXT:
 - Use _Generic to implement store and load helpers.
@@ -10,7 +30,6 @@ NEXT:
 - Make sure references can't be returned from procedures.
 - Rethink the label situation.
 - Add bounds checks to the vm_run method.
-- Debug information for the instructions.
 - Strip out the bld from core and remove core from the main repo.
 
 
