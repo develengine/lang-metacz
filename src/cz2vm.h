@@ -5,7 +5,7 @@
 #include "vm.h"
 #include "cz.h"
 
-void
+ptrdiff_t
 cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code, vm_debug_info_t *debug_info);
 
 #endif // CZ2VM_H_
@@ -21,10 +21,17 @@ typedef struct
     ptrdiff_t alignment;
 } cz2vm_mem_info_t;
 
+typedef enum
+{
+    cz2vm_obj_Value = 0,
+    cz2vm_obj_Ref,
+    cz2vm_obj_Type,
+} cz2vm_obj_type_t;
+
 typedef struct
 {
-    cz_type_t type;
-    bool is_ref;
+    cz2vm_obj_type_t obj_type;
+    cz_type_id_t type;
 
     ptrdiff_t prev_sp;
     ptrdiff_t size;
@@ -76,7 +83,7 @@ typedef UTILS_STRETCHY_T (cz2vm_scope_patch_t, unsigned) cz2vm_scope_patches_t;
 typedef struct
 {
     cz_var_t id;
-    cz_type_t type;
+    cz_type_id_t type;
     ptrdiff_t offset;
     ptrdiff_t size;
 } cz2vm_var_t;
@@ -86,7 +93,7 @@ typedef UTILS_STRETCHY_T (cz2vm_var_t, unsigned) cz2vm_vars_t;
 typedef struct
 {
     cz_var_t id;
-    cz_type_t type;
+    cz_type_id_t type;
     ptrdiff_t offset;
     ptrdiff_t size;
 } cz2vm_in_t;
@@ -95,7 +102,7 @@ typedef UTILS_STRETCHY_T (cz2vm_in_t, unsigned) cz2vm_ins_t;
 
 typedef struct
 {
-    cz_type_t type;
+    cz_type_id_t type;
     ptrdiff_t offset;
     ptrdiff_t size;
 } cz2vm_res_t;
@@ -141,7 +148,7 @@ typedef UTILS_STRETCHY_T (cz2vm_func_patch_t, unsigned) cz2vm_func_patches_t;
 
 typedef struct
 {
-    cz_type_t type;
+    cz_type_id_t type;
     ptrdiff_t offset;
 } cz2vm_struct_entry_t;
 
@@ -192,6 +199,7 @@ cz2vm_size(vm_type_type_t type)
         case vm_type_Float: return sizeof(float);
         case vm_type_Ptr:   return sizeof(ptrdiff_t);
         case vm_type_Char:  return sizeof(char);
+        case vm_type_Fptr:  return sizeof(void *);
     }
 
     fprintf(stderr, "cz2vm_size: Unknown type '%d'!\n", type);
@@ -206,6 +214,7 @@ cz2vm_alignment(vm_type_type_t type)
         case vm_type_Float: return _Alignof(float);
         case vm_type_Ptr:   return _Alignof(ptrdiff_t);
         case vm_type_Char:  return _Alignof(char);
+        case vm_type_Fptr:  return _Alignof(void *);
     }
 
     fprintf(stderr, "cz2vm_alignment: Unknown type '%d'!\n", type);
@@ -220,6 +229,8 @@ cz2vm_vm_type(cz_type_leaf_t type)
         case cz_type_Float: return vm_type_Float;
         case cz_type_Bool:  return vm_type_Int;
         case cz_type_Char:  return vm_type_Char;
+        case cz_type_CZ:    return vm_type_Fptr;
+        case cz_type_Func:  return vm_type_Int;
     }
 
     fprintf(stderr, "cz2vm_vm_type: Unknown type '%d'!\n", type);
@@ -227,10 +238,13 @@ cz2vm_vm_type(cz_type_leaf_t type)
 }
 
 static inline cz2vm_mem_info_t
-cz2vm_type_mem_info(cz2vm_t *cz2vm, cz_t *cz, cz_type_t type)
+cz2vm_type_mem_info(cz2vm_t *cz2vm, cz_t *cz, cz_type_id_t type)
 {
-    if (type.type == cz_type_type_Leaf) {
-        vm_type_type_t vm_type = cz2vm_vm_type(type.leaf);
+    UTILS_ASSERT(type < cz->type_infos.count);
+    cz_type_info_t type_info = cz->type_infos.data[type];
+
+    if (type_info.type == cz_type_type_Leaf) {
+        vm_type_type_t vm_type = cz2vm_vm_type(type_info.leaf);
 
         return (cz2vm_mem_info_t) {
             .size      = cz2vm_size(vm_type),
@@ -238,8 +252,8 @@ cz2vm_type_mem_info(cz2vm_t *cz2vm, cz_t *cz, cz_type_t type)
         };
     }
 
-    if (type.type == cz_type_type_Array) {
-        cz_type_array_t array = cz->arrays.data[type.array_index];
+    if (type_info.type == cz_type_type_Array) {
+        cz_type_array_t array = cz->arrays.data[type_info.array_index];
         cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, array.type);
 
         return (cz2vm_mem_info_t) {
@@ -248,12 +262,12 @@ cz2vm_type_mem_info(cz2vm_t *cz2vm, cz_t *cz, cz_type_t type)
         };
     }
 
-    if (type.type == cz_type_type_Struct) {
-        cz2vm_struct_t *struc = UTILS_STRETCHY_HOSE(cz2vm->structs, struct_index, type.struct_index);
+    if (type_info.type == cz_type_type_Struct) {
+        cz2vm_struct_t *struc = UTILS_STRETCHY_HOSE(cz2vm->structs, struct_index, type_info.struct_index);
         if (struc)
             return struc->mem_info;
 
-        cz_type_struct_t type_struct = cz->structs.data[type.struct_index];
+        cz_type_struct_t type_struct = cz->structs.data[type_info.struct_index];
 
         cz2vm_mem_info_t mem_info = {0};
 
@@ -286,7 +300,7 @@ cz2vm_type_mem_info(cz2vm_t *cz2vm, cz_t *cz, cz_type_t type)
         unsigned entry_count = cz2vm->struct_entries_rec.count - rec_entry_offset;
 
         UTILS_STRETCHY_PUSH(cz2vm->structs, (cz2vm_struct_t) {
-            .struct_index = type.struct_index,
+            .struct_index = type_info.struct_index,
             .mem_info     = mem_info,
             .entry_offset = cz2vm->struct_entries.count,
             .entry_count  = entry_count,
@@ -313,6 +327,8 @@ cz2vm_vm_reg(cz_type_leaf_t type)
         case cz_type_Float: return vm_reg_Float;
         case cz_type_Bool:  return vm_reg_Int;
         case cz_type_Char:  return vm_reg_Char;
+        case cz_type_CZ:    return vm_reg_Fptr;
+        case cz_type_Func:  return vm_reg_Int;
     }
 
     fprintf(stderr, "cz2vm_vm_reg: Unknown type '%d'!\n", type);
@@ -342,22 +358,28 @@ cz2vm_vm_op(cz_inst_op_type_t type)
 }
 
 static inline bool
-cz2vm_types_eq(cz_type_t a, cz_type_t b)
+cz2vm_types_eq(cz_t *cz, cz_type_id_t a, cz_type_id_t b)
 {
-    if (a.type != b.type)
+    UTILS_ASSERT(a < cz->type_infos.count);
+    UTILS_ASSERT(b < cz->type_infos.count);
+
+    cz_type_info_t a_info = cz->type_infos.data[a];
+    cz_type_info_t b_info = cz->type_infos.data[b];
+
+    if (a_info.type != b_info.type)
         return false;
 
-    if (a.type == cz_type_type_Leaf)
-        return a.leaf == b.leaf;
+    if (a_info.type == cz_type_type_Leaf)
+        return a_info.leaf == b_info.leaf;
 
-    if (a.type == cz_type_type_Struct)
-        return a.struct_index == b.struct_index;
+    if (a_info.type == cz_type_type_Struct)
+        return a_info.struct_index == b_info.struct_index;
 
     UTILS_ASSERT(!"Unknown type type!");
 }
 
 static inline void
-cz2vm_push(cz2vm_t *cz2vm, vm_mem_buf_t *code,
+cz2vm_push(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code,
            cz_type_leaf_t type, vm_type_type_t vm_type, vm_reg_type_t vm_reg, unsigned vm_reg_ind)
 {
     int off = 0;
@@ -366,10 +388,7 @@ cz2vm_push(cz2vm_t *cz2vm, vm_mem_buf_t *code,
     }
     off += (cz2vm->sp + off) % cz2vm_alignment(vm_type);
     UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
-        .type = {
-            .type = cz_type_type_Leaf,
-            .leaf = type,
-        },
+        .type    = cz_add_leaf(cz, type),
         .prev_sp = cz2vm->sp,
         .size    = cz2vm_size(vm_type),
         .offset  = cz2vm->sp + off,
@@ -392,7 +411,7 @@ cz2vm_stack_count(cz2vm_t *cz2vm)
 }
 
 static inline void
-cz2vm_load(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code, ptrdiff_t src, cz_type_t type)
+cz2vm_load(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code, ptrdiff_t src, cz_type_id_t type)
 {
     cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, type);
 
@@ -406,7 +425,7 @@ cz2vm_load(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code, ptrdiff_t src, cz_type_
         VM_PUSH(code, None, 0, off);
     }
     UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
-        .type = type,
+        .type    = type,
         .prev_sp = cz2vm->sp,
         .size    = mem_info.size,
         .offset  = cz2vm->sp + off,
@@ -417,14 +436,14 @@ cz2vm_load(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code, ptrdiff_t src, cz_type_
 }
 
 static inline void
-cz2vm_store(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code, ptrdiff_t dst, cz_type_t type)
+cz2vm_store(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code, ptrdiff_t dst, cz_type_id_t type)
 {
     UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 1);
 
     cz2vm_object_t object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
     cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, type);
 
-    UTILS_ASSERT(cz2vm_types_eq(type, object.type));
+    UTILS_ASSERT(cz2vm_types_eq(cz, type, object.type));
 
     vm_inst_memmove(code, dst, cz2vm->sp, mem_info.size); // TODO: Use memcpy
 
@@ -436,7 +455,7 @@ cz2vm_store(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code, ptrdiff_t dst, cz_type
 }
 
 static inline bool
-cz2vm_check_result(cz2vm_t *cz2vm, cz2vm_scope_t *scope)
+cz2vm_check_result(cz2vm_t *cz2vm, cz_t *cz, cz2vm_scope_t *scope)
 {
     unsigned result_count = cz2vm->eval_stack.count - scope->eval_stack_bottom;
 
@@ -447,12 +466,19 @@ cz2vm_check_result(cz2vm_t *cz2vm, cz2vm_scope_t *scope)
         cz2vm_object_t new_result = cz2vm->eval_stack.data[scope->eval_stack_bottom + i];
         cz2vm_object_t set_result = cz2vm->scope_results.data[scope->result_offset + i];
 
-        UTILS_ASSERT(cz2vm_types_eq(new_result.type, set_result.type));
+        UTILS_ASSERT(cz2vm_types_eq(cz, new_result.type, set_result.type));
         UTILS_ASSERT(new_result.prev_sp == set_result.prev_sp);
         UTILS_ASSERT(new_result.size    == set_result.size);
     }
 
     return true; // TODO: WTF IS THIS
+}
+
+static inline cz_type_info_t
+cz2vm_type_info(cz_t *cz, cz_type_id_t type)
+{
+    UTILS_ASSERT(type < cz->type_infos.count);
+    return cz->type_infos.data[type];
 }
 
 static inline cz2vm_var_t *
@@ -573,6 +599,47 @@ cz2vm_get_func_def(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, cz2vm_func_def_t *f
 }
 
 static void
+cz2vm_align_results(cz2vm_t *cz2vm, cz_t *cz, vm_mem_buf_t *code, cz2vm_func_def_t *callee_def,
+                    ptrdiff_t dst, ptrdiff_t prev_sp, ptrdiff_t input_offset)
+{
+    ptrdiff_t src_base = input_offset + callee_def->in_size + callee_def->meta_size + callee_def->var_size;
+
+    for (unsigned res_i = 0; res_i < callee_def->res_count; ++res_i) {
+        cz2vm_res_t res = cz2vm->reses.data[callee_def->res_offset + res_i];
+    
+        cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, res.type);
+    
+        vm_align(&dst, mem_info.alignment);
+    
+        ptrdiff_t src = src_base + res.offset;
+    
+        // TODO: Merge moves if possible.
+        if (dst != src) {
+            vm_inst_memmove(code, dst, src, res.size);
+        }
+    
+        UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
+            .type    = res.type,
+            .prev_sp = prev_sp,
+            .size    = res.size,
+            .offset  = dst,
+        });
+    
+        prev_sp = dst;
+        dst += res.size;
+    }
+    
+    ptrdiff_t callee_sp = src_base;
+    if (callee_def->res_count > 0) {
+        callee_sp += cz2vm->reses.data[callee_def->res_offset + callee_def->res_count - 1].offset;
+    }
+    
+    if (prev_sp != callee_sp) {
+        VM_POP(code, None, 0, callee_sp - prev_sp);
+    }
+}
+
+static void
 cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 {
     cz_function_t *function = UTILS_STRETCHY_HOSE(cz->functions, func, func);
@@ -647,12 +714,16 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                     case cz_type_Float: VM_IMM_FLOAT( code, 0, inst->imm.as_float ); break;
                     case cz_type_Bool:  VM_IMM_INT(   code, 0, inst->imm.as_int   ); break;
                     case cz_type_Char:  VM_IMM_CHAR(  code, 0, inst->imm.as_char  ); break;
+
+                    case cz_type_Func: VM_IMM_INT( code, 0, inst->imm.as_int ); break;
+
+                    case cz_type_CZ: UTILS_ASSERT(!"Wrong type for immediates!");
                 }
 
                 vm_type_type_t vm_type = cz2vm_vm_type(inst->imm.type);
                 vm_reg_type_t  vm_reg  = cz2vm_vm_reg(inst->imm.type);
 
-                cz2vm_push(cz2vm, code, inst->imm.type, vm_type, vm_reg, 0);
+                cz2vm_push(cz2vm, cz, code, inst->imm.type, vm_type, vm_reg, 0);
             } break;
 
             case cz_inst_Op: {
@@ -661,12 +732,16 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 cz2vm_object_t object_r = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
                 cz2vm_object_t object_l = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
 
-                UTILS_ASSERT(cz2vm_types_eq(object_r.type, object_l.type));
-                UTILS_ASSERT(object_r.type.type == cz_type_type_Leaf);
-                UTILS_ASSERT(object_l.type.type == cz_type_type_Leaf);
+                UTILS_ASSERT(cz2vm_types_eq(cz, object_r.type, object_l.type));
 
-                vm_reg_type_t  vm_reg  = cz2vm_vm_reg(object_r.type.leaf);
-                vm_type_type_t vm_type = cz2vm_vm_type(object_r.type.leaf);
+                cz_type_info_t object_r_info = cz2vm_type_info(cz, object_r.type);
+                cz_type_info_t object_l_info = cz2vm_type_info(cz, object_l.type);
+
+                UTILS_ASSERT(object_r_info.type == cz_type_type_Leaf);
+                UTILS_ASSERT(object_l_info.type == cz_type_type_Leaf);
+
+                vm_reg_type_t  vm_reg  = cz2vm_vm_reg(object_r_info.leaf);
+                vm_type_type_t vm_type = cz2vm_vm_type(object_r_info.leaf);
 
                 int off = cz2vm->sp - object_r.prev_sp;
                 vm_inst_pop(code, vm_reg, 1, off);
@@ -687,10 +762,10 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                  || vm_op_type == vm_op_EQ
                  || vm_op_type == vm_op_NE
                 ) {
-                    cz2vm_push(cz2vm, code, cz_type_Bool, vm_type_Int, vm_reg_Int, 0);
+                    cz2vm_push(cz2vm, cz, code, cz_type_Bool, vm_type_Int, vm_reg_Int, 0);
                 }
                 else {
-                    cz2vm_push(cz2vm, code, object_r.type.leaf, vm_type, vm_reg, 0);
+                    cz2vm_push(cz2vm, cz, code, object_r_info.leaf, vm_type, vm_reg, 0);
                 }
             } break;
 
@@ -710,7 +785,7 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 UTILS_ASSERT(scope.id == inst->scope);
 
                 if (scope.is_result_set) {
-                    UTILS_ASSERT(cz2vm_check_result(cz2vm, &scope) == true);
+                    UTILS_ASSERT(cz2vm_check_result(cz2vm, cz, &scope) == true);
                 }
 
                 unsigned patch_dst_i = 0;
@@ -774,8 +849,9 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 1);
 
                 cz2vm_object_t object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
-                UTILS_ASSERT(object.type.type == cz_type_type_Leaf);
-                UTILS_ASSERT(object.type.leaf == cz_type_Bool);
+                cz_type_info_t object_info = cz2vm_type_info(cz, object.type);
+                UTILS_ASSERT(object_info.type == cz_type_type_Leaf);
+                UTILS_ASSERT(object_info.leaf == cz_type_Bool);
 
                 int off = cz2vm->sp - object.prev_sp;
                 vm_inst_pop(code, vm_reg_Int, 0, off);
@@ -838,7 +914,7 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 UTILS_ASSERT(scope_i != cz2vm->scopes.count);
 
                 if (scope->is_result_set) {
-                    UTILS_ASSERT(cz2vm_check_result(cz2vm, scope) == true);
+                    UTILS_ASSERT(cz2vm_check_result(cz2vm, cz, scope) == true);
                 }
                 else {
                     unsigned result_count = cz2vm->eval_stack.count - scope->eval_stack_bottom;
@@ -867,6 +943,8 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
             } break;
 
             case cz_inst_Load: {
+                UTILS_ASSERT(inst->load.mem_type != cz_mem_Type);
+
                 if (inst->load.mem_type == cz_mem_Var) {
                     cz2vm_var_t *var = UTILS_STRETCHY_HOSE(cz2vm->vars, id, inst->load.var);
                     UTILS_ASSERT(var);
@@ -884,6 +962,8 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
             } break;
 
             case cz_inst_Store: {
+                UTILS_ASSERT(inst->store.mem_type != cz_mem_Type);
+
                 if (inst->store.mem_type == cz_mem_Var) {
                     cz2vm_var_t *var = UTILS_STRETCHY_HOSE(cz2vm->vars, id, inst->store.var);
                     UTILS_ASSERT(var);
@@ -941,7 +1021,7 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                         cz2vm_in_t     in  = cz2vm->ins.data[callee_def.in_offset + in_i];
                         cz2vm_object_t obj = cz2vm->eval_stack.data[first_input_i + in_i];
 
-                        UTILS_ASSERT(cz2vm_types_eq(in.type, obj.type));
+                        UTILS_ASSERT(cz2vm_types_eq(cz, in.type, obj.type));
                         UTILS_ASSERT(in.size == obj.size);
 
                         ptrdiff_t dst = input_offset + in.offset;
@@ -988,80 +1068,60 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                         prev_sp = object->offset;
                     }
 
-                    ptrdiff_t src_base = input_offset + callee_def.in_size + callee_def.meta_size + callee_def.var_size;
-                    
-                    for (unsigned res_i = 0; res_i < callee_def.res_count; ++res_i) {
-                        cz2vm_res_t res = cz2vm->reses.data[callee_def.res_offset + res_i];
-
-                        cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, res.type);
-
-                        vm_align(&dst, mem_info.alignment);
-
-                        ptrdiff_t src = src_base + res.offset;
-
-                        // TODO: Merge moves if possible.
-                        if (dst != src) {
-                            vm_inst_memmove(code, dst, src, res.size);
-                        }
-
-                        UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
-                            .type    = res.type,
-                            .prev_sp = prev_sp,
-                            .size    = res.size,
-                            .offset  = dst,
-                        });
-
-                        prev_sp = dst;
-                        dst += res.size;
-                    }
-
-                    ptrdiff_t callee_sp = src_base;
-                    if (callee_def.res_count > 0) {
-                        callee_sp += cz2vm->reses.data[callee_def.res_offset + callee_def.res_count - 1].offset;
-                    }
-
-                    if (prev_sp != callee_sp) {
-                        VM_POP(code, None, 0, callee_sp - prev_sp);
-                    }
+                    cz2vm_align_results(cz2vm, cz, code, &callee_def, dst, prev_sp, input_offset);
                 }
             } break;
 
             case cz_inst_Ref: {
-                ptrdiff_t val;
-                cz_type_t type;
-
-                if (inst->ref.mem_type == cz_mem_Var) {
-                    cz2vm_var_t *var = UTILS_STRETCHY_HOSE(cz2vm->vars, id, inst->ref.var);
-                    UTILS_ASSERT(var);
-
-                    val  = func_def.meta_size + var->offset;
-                    type = var->type;
+                if (inst->ref.mem_type == cz_mem_Type) {
+                    UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
+                        .type     = inst->ref.type,
+                        .obj_type = cz2vm_obj_Type,
+                        .prev_sp  = cz2vm->sp,
+                        .size     = 0,
+                        .offset   = cz2vm->sp,
+                    });
                 }
                 else {
-                    cz2vm_in_t *in = UTILS_STRETCHY_HOSE(cz2vm->ins, id, inst->ref.in);
-                    UTILS_ASSERT(in);
+                    ptrdiff_t val;
+                    cz_type_id_t type;
 
-                    val  = in->offset - func_def.in_size;
-                    type = in->type;
+                    if (inst->ref.mem_type == cz_mem_Var) {
+                        cz2vm_var_t *var = UTILS_STRETCHY_HOSE(cz2vm->vars, id, inst->ref.var);
+                        UTILS_ASSERT(var);
+
+                        val  = func_def.meta_size + var->offset;
+                        type = var->type;
+                    }
+                    else if (inst->ref.mem_type == cz_mem_In) {
+                        cz2vm_in_t *in = UTILS_STRETCHY_HOSE(cz2vm->ins, id, inst->ref.in);
+                        UTILS_ASSERT(in);
+
+                        val  = in->offset - func_def.in_size;
+                        type = in->type;
+                    }
+                    else {
+                        UTILS_ASSERT(!"Illegal memory type!");
+                    }
+
+                    VM_IMM_PTR(code, 0, val);
+
+                    int off = 0;
+                    if (cz2vm->eval_stack.count != 0) {
+                        off += cz2vm->eval_stack.data[cz2vm->eval_stack.count - 1].size;
+                    }
+                    off += (cz2vm->sp + off) % cz2vm_alignment(vm_type_Ptr);
+                    UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
+                        .type     = type,
+                        .obj_type = cz2vm_obj_Ref,
+                        .prev_sp  = cz2vm->sp,
+                        .size     = cz2vm_size(vm_type_Ptr),
+                        .offset   = cz2vm->sp + off,
+                    });
+                    cz2vm->sp += off;
+
+                    vm_inst_push(code, vm_reg_Ptr, 0, off);
                 }
-
-                VM_IMM_PTR(code, 0, val);
-
-                int off = 0;
-                if (cz2vm->eval_stack.count != 0) {
-                    off += cz2vm->eval_stack.data[cz2vm->eval_stack.count - 1].size;
-                }
-                off += (cz2vm->sp + off) % cz2vm_alignment(vm_type_Ptr);
-                UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
-                    .type    = type,
-                    .is_ref  = true,
-                    .prev_sp = cz2vm->sp,
-                    .size    = cz2vm_size(vm_type_Ptr),
-                    .offset  = cz2vm->sp + off,
-                });
-                cz2vm->sp += off;
-
-                vm_inst_push(code, vm_reg_Ptr, 0, off);
             } break;
 
             case cz_inst_Select: {
@@ -1069,10 +1129,11 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
 
                 cz2vm_object_t object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
 
-                UTILS_ASSERT(object.is_ref == true);
-                UTILS_ASSERT(object.type.type == cz_type_type_Struct);
+                UTILS_ASSERT(object.obj_type == cz2vm_obj_Ref);
+                cz_type_info_t object_info = cz2vm_type_info(cz, object.type);
+                UTILS_ASSERT(object_info.type == cz_type_type_Struct);
 
-                cz2vm_struct_t *struc = UTILS_STRETCHY_HOSE(cz2vm->structs, struct_index, object.type.struct_index);
+                cz2vm_struct_t *struc = UTILS_STRETCHY_HOSE(cz2vm->structs, struct_index, object_info.struct_index);
                 UTILS_ASSERT(struc);
 
                 cz2vm_struct_entry_t entry = cz2vm->struct_entries.data[struc->entry_offset + inst->select.entry_id];
@@ -1083,11 +1144,11 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 vm_inst_push(code, vm_reg_Ptr, 0, 0);
 
                 UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
-                    .type    = entry.type,
-                    .is_ref  = true,
-                    .prev_sp = object.prev_sp,
-                    .size    = object.size,
-                    .offset  = object.offset,
+                    .type     = entry.type,
+                    .obj_type = cz2vm_obj_Ref,
+                    .prev_sp  = object.prev_sp,
+                    .size     = object.size,
+                    .offset   = object.offset,
                 });
             } break;
 
@@ -1097,13 +1158,15 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 cz2vm_object_t ind_obj = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
                 cz2vm_object_t ref_obj = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
 
-                UTILS_ASSERT(!ind_obj.is_ref);
-                UTILS_ASSERT(ind_obj.type.type == cz_type_type_Leaf);
-                UTILS_ASSERT(ind_obj.type.leaf == cz_type_Int);
-                UTILS_ASSERT(ref_obj.is_ref == true);
-                UTILS_ASSERT(ref_obj.type.type == cz_type_type_Array);
+                UTILS_ASSERT(ind_obj.obj_type == cz2vm_obj_Value);
+                cz_type_info_t ind_obj_info = cz2vm_type_info(cz, ind_obj.type);
+                UTILS_ASSERT(ind_obj_info.type == cz_type_type_Leaf);
+                UTILS_ASSERT(ind_obj_info.leaf == cz_type_Int);
+                UTILS_ASSERT(ref_obj.obj_type == cz2vm_obj_Ref);
+                cz_type_info_t ref_obj_info = cz2vm_type_info(cz, ref_obj.type);
+                UTILS_ASSERT(ref_obj_info.type == cz_type_type_Array);
 
-                cz_type_array_t array = cz->arrays.data[ref_obj.type.array_index];
+                cz_type_array_t array = cz->arrays.data[ref_obj_info.array_index];
                 cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, array.type);
 
                 VM_POP(code, Int, 0, cz2vm->sp - ref_obj.offset);
@@ -1118,11 +1181,11 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 cz2vm->sp = ref_obj.offset;
 
                 UTILS_STRETCHY_PUSH(cz2vm->eval_stack, (cz2vm_object_t) {
-                    .type    = array.type,
-                    .is_ref  = true,
-                    .prev_sp = ref_obj.prev_sp,
-                    .size    = ref_obj.size,
-                    .offset  = ref_obj.offset,
+                    .type     = array.type,
+                    .obj_type = cz2vm_obj_Ref,
+                    .prev_sp  = ref_obj.prev_sp,
+                    .size     = ref_obj.size,
+                    .offset   = ref_obj.offset,
                 });
             } break;
 
@@ -1132,10 +1195,12 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 cz2vm_object_t val_obj = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
                 cz2vm_object_t ref_obj = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
 
-                UTILS_ASSERT(!val_obj.is_ref);
-                UTILS_ASSERT(ref_obj.is_ref);
-                UTILS_ASSERT(ref_obj.type.type == val_obj.type.type);
-                UTILS_ASSERT(cz2vm_types_eq(val_obj.type, ref_obj.type));
+                UTILS_ASSERT(val_obj.obj_type == cz2vm_obj_Value);
+                UTILS_ASSERT(ref_obj.obj_type == cz2vm_obj_Ref);
+                cz_type_info_t val_obj_info = cz2vm_type_info(cz, val_obj.type);
+                cz_type_info_t ref_obj_info = cz2vm_type_info(cz, ref_obj.type);
+                UTILS_ASSERT(ref_obj_info.type == val_obj_info.type);
+                UTILS_ASSERT(cz2vm_types_eq(cz, val_obj.type, ref_obj.type));
 
                 VM_IMM_PTR(code, 0, ref_obj.offset);
                 vm_inst_load(code, vm_reg_Ptr, 0);
@@ -1152,7 +1217,7 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
 
                 cz2vm_object_t object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
 
-                UTILS_ASSERT(object.is_ref == true);
+                UTILS_ASSERT(object.obj_type == cz2vm_obj_Ref);
 
                 cz2vm_mem_info_t mem_info = cz2vm_type_mem_info(cz2vm, cz, object.type);
 
@@ -1175,13 +1240,118 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
                 vm_inst_load_mem(code, cz2vm->sp, mem_info.size);
             } break;
 
+            case cz_inst_Intr: {
+                if (cz_intr_is_meta(inst->intr)) {
+                    UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 1);
+
+                    cz2vm_object_t cz_object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
+                    cz_type_info_t cz_type_info = cz2vm_type_info(cz, cz_object.type);
+                    UTILS_ASSERT(cz_type_info.type == cz_type_type_Leaf);
+                    UTILS_ASSERT(cz_type_info.leaf == cz_type_CZ);
+
+                    vm_inst_pop(code, vm_reg_Fptr, 0, cz2vm->sp - cz_object.prev_sp);
+                    cz2vm->sp = cz_object.prev_sp;
+
+                    bool returned_value = false;
+                    cz_type_leaf_t leaf_type;
+
+                    switch (inst->intr) {
+                        case cz_intr_MetaInstHalt:
+                            break;
+
+                        case cz_intr_MetaInstImm: {
+                            UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 2);
+
+                            cz2vm_object_t type_object  = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
+                            cz2vm_object_t value_object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
+                            UTILS_ASSERT(type_object.obj_type  == cz2vm_obj_Type);
+                            UTILS_ASSERT(value_object.obj_type == cz2vm_obj_Value);
+
+                            cz_type_info_t type_type_info  = cz2vm_type_info(cz, type_object.type);
+                            cz_type_info_t value_type_info = cz2vm_type_info(cz, value_object.type);
+                            UTILS_ASSERT(type_type_info.type  == cz_type_type_Leaf);
+                            UTILS_ASSERT(value_type_info.type == cz_type_type_Leaf);
+                            UTILS_ASSERT(type_type_info.leaf  == value_type_info.leaf);
+
+                            VM_IMM_INT(code, 0, type_type_info.leaf);
+
+                            vm_inst_pop(code, cz2vm_vm_reg(type_type_info.leaf), 1, cz2vm->sp - value_object.prev_sp);
+                            cz2vm->sp = value_object.prev_sp;
+                        } break;
+
+                        case cz_intr_MetaInstOp:
+                            break;
+                        case cz_intr_MetaInstScopeBegin:
+                            break;
+                        case cz_intr_MetaInstScopeEnd:
+                            break;
+                        case cz_intr_MetaInstLabel:
+                            break;
+                        case cz_intr_MetaInstJmp:
+                            break;
+                        case cz_intr_MetaInstBrk:
+                            break;
+                        case cz_intr_MetaInstLoad:
+                            break;
+                        case cz_intr_MetaInstStore:
+                            break;
+                        case cz_intr_MetaInstCall:
+                            break;
+                        case cz_intr_MetaInstRef:
+                            break;
+                        case cz_intr_MetaInstSelect:
+                            break;
+                        case cz_intr_MetaInstDeref:
+                            break;
+                        case cz_intr_MetaInstSet:
+                            break;
+                        case cz_intr_MetaInstIndex:
+                            break;
+                        case cz_intr_MetaInstIntr:
+                            break;
+
+                        case cz_intr_MetaInstPrint:
+                            break;
+
+                        case cz_intr_MetaInstCow:
+                            break;
+
+                        case cz_intr_MetaFuncBegin: {
+                            returned_value = true;
+                            leaf_type = cz_type_Func;
+                        } break;
+
+                        case cz_intr_MetaFuncEnd: {
+                            UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 1);
+
+                            cz2vm_object_t func_object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
+                            UTILS_ASSERT(func_object.obj_type == cz2vm_obj_Value);
+
+                            cz_type_info_t func_type_info = cz2vm_type_info(cz, func_object.type);
+                            UTILS_ASSERT(func_type_info.type == cz_type_type_Leaf);
+                            UTILS_ASSERT(func_type_info.leaf == cz_type_Func);
+
+                            vm_inst_pop(code, vm_reg_Int, 0, cz2vm->sp - func_object.prev_sp);
+                            cz2vm->sp = func_object.prev_sp;
+                        } break;
+                    }
+
+                    vm_inst_cz(code, inst->intr);
+
+                    if (returned_value) {
+                        cz2vm_push(cz2vm, cz, code, leaf_type, vm_type_Int, vm_reg_Int, 0);
+                    }
+                }
+            } break;
+
             case cz_inst_Print: {
                 UTILS_ASSERT(cz2vm_stack_count(cz2vm) >= 1);
 
                 cz2vm_object_t object = cz2vm->eval_stack.data[--(cz2vm->eval_stack.count)];
+                cz_type_info_t object_info = cz2vm_type_info(cz, object.type);
 
-                UTILS_ASSERT(object.type.type == cz_type_type_Leaf);
-                vm_reg_type_t vm_reg = cz2vm_vm_reg(object.type.leaf);
+                UTILS_ASSERT(object_info.type == cz_type_type_Leaf);
+                vm_reg_type_t vm_reg = cz2vm_vm_reg(object_info.leaf);
 
                 int off = cz2vm->sp - object.prev_sp;
                 vm_inst_pop(code, vm_reg, 0, off);
@@ -1202,7 +1372,7 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
         cz2vm_object_t obj = cz2vm->eval_stack.data[res_i];
         cz2vm_res_t    res = cz2vm->reses.data[func_def.res_offset + res_i];
 
-        UTILS_ASSERT(cz2vm_types_eq(obj.type, res.type));
+        UTILS_ASSERT(cz2vm_types_eq(cz, obj.type, res.type));
         UTILS_ASSERT(obj.size   == res.size);
         UTILS_ASSERT(obj.offset == res.offset + func_def.meta_size + func_def.var_size);
     }
@@ -1210,11 +1380,13 @@ cz2vm_compile_func(cz2vm_t *cz2vm, cz_t *cz, cz_func_t func, vm_mem_buf_t *code,
     vm_inst_ret(code);
 }
 
-void
+ptrdiff_t
 cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 {
     static cz2vm_t cz2vm_val = {0};
     cz2vm_t *cz2vm = &cz2vm_val;
+
+    ptrdiff_t start_offset = code->count;
 
     cz2vm->todo_funcs.count = 0;
     cz2vm->func_patches.count = 0;
@@ -1240,6 +1412,8 @@ cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code, vm_debug_info_t *deb
         UTILS_STRETCHY_PUSH(cz2vm->todo_funcs, func);
     }
 
+    cz2vm_align_results(cz2vm, cz, code, &func_def, 0, 0, 0);
+
     VM_HALT(code);
 
     while (cz2vm->todo_funcs.count != 0) {
@@ -1255,6 +1429,8 @@ cz2vm_compile(cz_t *cz, cz_func_t func, vm_mem_buf_t *code, vm_debug_info_t *deb
 
         *(ptrdiff_t *)(code->data + patch.address_position) = cz2vm_func->start_address;
     }
+
+    return start_offset;
 }
 
 #endif // CZ2VM_IMPL

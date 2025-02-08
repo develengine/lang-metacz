@@ -21,9 +21,9 @@ main(void)
     cz_t cz_ctx = {0};
     cz_t *cz = &cz_ctx;
 
-    cz_type_t struct_1 = cz_struct_begin(cz);
-        cz_entry_id_t struct_1__a = cz_add_entry(cz, CZ_LEAF(Int));
-        cz_entry_id_t struct_1__b = cz_add_entry(cz, CZ_LEAF(Float));
+    cz_type_id_t struct_1 = cz_struct_begin(cz);
+        cz_entry_id_t struct_1__a = cz_add_entry(cz, CZ_LEAF(cz, Int));
+        cz_entry_id_t struct_1__b = cz_add_entry(cz, CZ_LEAF(cz, Float));
     cz_struct_end(cz, struct_1);
 
     CZ_FUNC(cz, main_func) {
@@ -58,7 +58,7 @@ main(void)
     unsigned char *data = malloc(data_size);
     UTILS_ASSERT(data);
 
-    vm_run(c, data, data_size);
+    vm_run(c, 0, data, data_size);
 
     return 0;
 }

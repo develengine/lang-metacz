@@ -65,7 +65,7 @@ main(void)
     unsigned char *data = malloc(data_size);
     UTILS_ASSERT(data);
 
-    vm_run(c, data, data_size);
+    vm_run(c, 0, data, data_size);
 
     return 0;
 }

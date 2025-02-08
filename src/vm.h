@@ -3,6 +3,9 @@
 
 #include "utils.h"
 
+#include "cz.h"
+#include "czeasy.h"
+
 typedef enum
 {
     vm_inst_Halt,     //
@@ -24,6 +27,7 @@ typedef enum
     vm_inst_JmpIf,    // [off]
     vm_inst_MemMove,  // [dst] [src] [size]
     vm_inst_RegMove,  // [dst_reg] [src_reg]
+    vm_inst_CZ,       // [cz_command]
 
     vm_inst_LoadMem,  // [dst] [size]
     vm_inst_StoreMem, // [src] [size]
@@ -42,6 +46,8 @@ typedef enum
     vm_reg_IP,
 
     vm_reg_Float,
+
+    vm_reg_Fptr,
 } vm_reg_type_t;
 
 typedef enum
@@ -51,6 +57,8 @@ typedef enum
     vm_type_Ptr,
 
     vm_type_Float,
+
+    vm_type_Fptr,
 } vm_type_type_t;
 
 static inline const char *
@@ -61,6 +69,7 @@ vm_type_name(vm_type_type_t type)
         case vm_type_Char:  return "char";
         case vm_type_Ptr:   return "ptr";
         case vm_type_Float: return "float";
+        case vm_type_Fptr:  return "fptr";
     }
 
     return "<unknown type>";
@@ -78,6 +87,7 @@ vm_reg_name(vm_reg_type_t reg)
         case vm_reg_SP:    return "sp";
         case vm_reg_IP:    return "ip";
         case vm_reg_Float: return "float";
+        case vm_reg_Fptr:  return "fptr";
     }
 
     return "<unknown>";
@@ -95,6 +105,7 @@ vm_reg_is_single(vm_reg_type_t reg)
         case vm_reg_SP:    return true;
         case vm_reg_IP:    return true;
         case vm_reg_Float: return false;
+        case vm_reg_Fptr:  return true;
     }
 
     return true;
@@ -204,6 +215,8 @@ typedef struct
 
     /* extensions */
     float floats[2];
+
+    void *fptr;
 } vm_regs_t;
 
 typedef UTILS_STRETCHY_T (unsigned char, ptrdiff_t) vm_mem_buf_t;
@@ -224,7 +237,7 @@ typedef struct
 
 
 void
-vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size);
+vm_run(vm_mem_buf_t *code, ptrdiff_t offset, unsigned char *data, ptrdiff_t data_size);
 
 void
 vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info);
@@ -453,20 +466,29 @@ vm_inst_regmove(vm_mem_buf_t *code, vm_reg_type_t dst_reg, unsigned dst_ind,
     });
 }
 
+static inline void
+vm_inst_cz(vm_mem_buf_t *code, cz_intr_t intr)
+{
+    (void)VM_MEM_BUF_PUSH(code, vm_inst_t, vm_inst_CZ);
+    (void)VM_MEM_BUF_PUSH(code, cz_intr_t, intr);
+}
+
 #endif // VM_H_
 
 #ifdef VM_IMPL
 #undef VM_IMPL
 
 void
-vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
+vm_run(vm_mem_buf_t *code, ptrdiff_t offset, unsigned char *data, ptrdiff_t data_size)
 {
     (void)data_size;
 
-    if (code->count == 0)
+    if (code->count - offset == 0)
         return;
 
-    vm_regs_t regs = {0};
+    vm_regs_t regs = {
+        .ip = offset,
+    };
 
     for (;;) {
         vm_inst_t inst = VM_MEM_GET(code->data, &regs.ip, vm_inst_t);
@@ -506,6 +528,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                     case vm_reg_IP:
                         regs.ip = VM_MEM_GET(code->data, &regs.ip, ptrdiff_t);
                         break;
+                    case vm_reg_Fptr:
+                        UTILS_ASSERT(!"Fptr can't be leaded from an immediate!");
                 }
             } break;
 
@@ -558,6 +582,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                     case vm_reg_IP:
                         regs.ip = *(ptrdiff_t*)(data + regs.bp + regs.ptrs[0]);
                         break;
+                    case vm_reg_Fptr:
+                        regs.fptr = *(void **)(data + regs.bp + regs.ptrs[0]);
+                        break;
                 }
             } break;
 
@@ -588,6 +615,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                     case vm_reg_IP:
                         *(ptrdiff_t*)(data + regs.bp + regs.ptrs[0]) = regs.ip;
                         break;
+                    case vm_reg_Fptr:
+                        *(void **)(data + regs.bp + regs.ptrs[0]) = regs.fptr;
                 }
             } break;
 
@@ -618,6 +647,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                         break;
                     case vm_reg_IP:
                         regs.ip = *(ptrdiff_t*)(data + regs.sp);
+                        break;
+                    case vm_reg_Fptr:
+                        regs.fptr = *(void **)(data + regs.sp);
                         break;
                 }
 
@@ -654,6 +686,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                     case vm_reg_IP:
                         *(ptrdiff_t*)(data + regs.sp) = regs.ip;
                         break;
+                    case vm_reg_Fptr:
+                        *(void **)(data + regs.sp) = regs.fptr;
+                        break;
                 }
             } break;
 
@@ -679,7 +714,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                             case vm_reg_Ptr:   regs.ints[dst_reg.index] = (int)regs.ptrs  [src_reg.index]; break;
                             case vm_reg_Float: regs.ints[dst_reg.index] = (int)regs.floats[src_reg.index]; break;
                             default:
-                                fprintf(stderr, "Unsupported source register type for RegMove Int: %d\n", src_reg.type);
+                                fprintf(stderr, "Unsupported source register type for RegMove Int: %s\n",
+                                                vm_reg_name(src_reg.type));
                                 exit(1);
                         }
                     } break;
@@ -690,7 +726,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                             case vm_reg_Ptr:   regs.chars[dst_reg.index] = (char)regs.ptrs  [src_reg.index]; break;
                             case vm_reg_Float: regs.chars[dst_reg.index] = (char)regs.floats[src_reg.index]; break;
                             default:
-                                fprintf(stderr, "Unsupported source register type for RegMove Char: %d\n", src_reg.type);
+                                fprintf(stderr, "Unsupported source register type for RegMove Char: %s\n",
+                                                vm_reg_name(src_reg.type));
                                 exit(1);
                         }
                     } break;
@@ -701,7 +738,8 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                             case vm_reg_Ptr:   regs.ptrs[dst_reg.index] =            regs.ptrs  [src_reg.index]; break;
                             case vm_reg_Float: regs.ptrs[dst_reg.index] = (ptrdiff_t)regs.floats[src_reg.index]; break;
                             default:
-                                fprintf(stderr, "Unsupported source register type for RegMove Ptr: %d\n", src_reg.type);
+                                fprintf(stderr, "Unsupported source register type for RegMove Ptr: %s\n",
+                                        vm_reg_name(src_reg.type));
                                 exit(1);
                         }
                     } break;
@@ -712,13 +750,14 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                             case vm_reg_Ptr:   regs.floats[dst_reg.index] = (float)regs.ptrs  [src_reg.index]; break;
                             case vm_reg_Float: regs.floats[dst_reg.index] =        regs.floats[src_reg.index]; break;
                             default:
-                                fprintf(stderr, "Unsupported source register type for RegMove Float: %d\n", src_reg.type);
+                                fprintf(stderr, "Unsupported source register type for RegMove Float: %s\n",
+                                                vm_reg_name(src_reg.type));
                                 exit(1);
                         }
                     } break;
 
                     default:
-                        fprintf(stderr, "Unsupported register type for RegMove: %d\n", dst_reg.type);
+                        fprintf(stderr, "Unsupported register type for RegMove: %s\n", vm_reg_name(dst_reg.type));
                         exit(1);
                 }
             } break;
@@ -830,7 +869,7 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                         }
                     } break;
                     default:
-                        fprintf(stderr, "Unsupported type for operations (%d)\n", op.type_type);
+                        fprintf(stderr, "Unsupported type for operations: %s\n", vm_type_name(op.type_type));
                         exit(1);
                 }
             } break;
@@ -845,6 +884,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                     case vm_type_Float:
                         fprintf(stderr, "Shift left isn't supported for floating point types\n");
                         exit(1);
+                    case vm_type_Fptr:
+                        fprintf(stderr, "Shift left isn't supported for foreign pointer types\n");
+                        exit(1);
                 }
             } break;
 
@@ -857,6 +899,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                     case vm_type_Ptr:  regs.ptrs [0] >>= regs.ints[1]; break;
                     case vm_type_Float:
                         fprintf(stderr, "Shift right isn't supported for floating point types\n");
+                        exit(1);
+                    case vm_type_Fptr:
+                        fprintf(stderr, "Shift right isn't supported for foreign pointer types\n");
                         exit(1);
                 }
             } break;
@@ -897,6 +942,9 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                             case vm_un_op_Negate: regs.floats[un_op.index] = -regs.floats[un_op.index]; break;
                         }
                     } break;
+                    case vm_type_Fptr:
+                        fprintf(stderr, "Unary operations are not supported for foreign pointer types\n");
+                        exit(1);
                 }
             } break;
 
@@ -974,6 +1022,52 @@ vm_run(vm_mem_buf_t *code, unsigned char *data, ptrdiff_t data_size)
                     case vm_reg_IP:
                         printf("%zu\n", regs.ip);
                         break;
+                    case vm_reg_Fptr:
+                        printf("%p\n", regs.fptr);
+                        break;
+                }
+            } break;
+
+            case vm_inst_CZ: {
+                cz_intr_t intr = VM_MEM_GET(code->data, &regs.ip, cz_intr_t);
+                cz_t *cz = regs.fptr;
+
+                switch (intr) {
+                    case cz_intr_MetaInstHalt: 
+                        CZ_HALT(cz);
+                        break;
+
+                    case cz_intr_MetaInstImm: break;
+                    case cz_intr_MetaInstOp: break;
+                    case cz_intr_MetaInstScopeBegin: break;
+                    case cz_intr_MetaInstScopeEnd: break;
+                    case cz_intr_MetaInstLabel: break;
+                    case cz_intr_MetaInstJmp: break;
+                    case cz_intr_MetaInstBrk: break;
+                    case cz_intr_MetaInstLoad: break;
+                    case cz_intr_MetaInstStore: break;
+                    case cz_intr_MetaInstCall: break;
+                    case cz_intr_MetaInstRef: break;
+                    case cz_intr_MetaInstSelect: break;
+                    case cz_intr_MetaInstDeref: break;
+                    case cz_intr_MetaInstSet: break;
+                    case cz_intr_MetaInstIndex: break;
+                    case cz_intr_MetaInstIntr: break;
+                    case cz_intr_MetaInstPrint: break;
+
+                    case cz_intr_MetaInstCow:
+                        CZ_COW(cz);
+                        break;
+
+                    case cz_intr_MetaFuncBegin: {
+                        cz_func_t func = cz_function_begin(cz);
+                        regs.ints[0] = func;
+                    } break;
+
+                    case cz_intr_MetaFuncEnd: {
+                        cz_func_t func = regs.ints[0];
+                        cz_function_end(cz, func);
+                    } break;
                 }
             } break;
 
@@ -1081,6 +1175,9 @@ vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info)
                     case vm_reg_IP:
                         printf("ip %ld\n", VM_MEM_GET(code->data, &ip, ptrdiff_t));
                         break;
+                    case vm_reg_Fptr:
+                        printf("fptr <WRONG>\n");
+                        break;
                 }
             } break;
 
@@ -1108,31 +1205,11 @@ vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 
                 printf("load ");
 
-                switch (reg.type) {
-                    case vm_reg_None:
-                        printf("none\n");
-                        break;
-                    case vm_reg_Int:
-                        printf("ints[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Float:
-                        printf("floats[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Ptr:
-                        printf("ptrs[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Char:
-                        printf("chars[%d]\n", reg.index);
-                        break;
-                    case vm_reg_BP:
-                        printf("bp\n");
-                        break;
-                    case vm_reg_SP:
-                        printf("sp\n");
-                        break;
-                    case vm_reg_IP:
-                        printf("ip\n");
-                        break;
+                if (vm_reg_is_single(reg.type)) {
+                    printf("%s\n", vm_reg_name(reg.type));
+                }
+                else {
+                    printf("%ss[%d]\n", vm_reg_name(reg.type), reg.index);
                 }
             } break;
 
@@ -1141,31 +1218,11 @@ vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 
                 printf("store ");
 
-                switch (reg.type) {
-                    case vm_reg_None:
-                        printf("none\n");
-                        break;
-                    case vm_reg_Int:
-                        printf("ints[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Float:
-                        printf("floats[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Ptr:
-                        printf("ptrs[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Char:
-                        printf("chars[%d]\n", reg.index);
-                        break;
-                    case vm_reg_BP:
-                        printf("bp\n");
-                        break;
-                    case vm_reg_SP:
-                        printf("sp\n");
-                        break;
-                    case vm_reg_IP:
-                        printf("ip\n");
-                        break;
+                if (vm_reg_is_single(reg.type)) {
+                    printf("%s\n", vm_reg_name(reg.type));
+                }
+                else {
+                    printf("%ss[%d]\n", vm_reg_name(reg.type), reg.index);
                 }
             } break;
 
@@ -1175,31 +1232,11 @@ vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 
                 printf("pop ");
 
-                switch (reg.type) {
-                    case vm_reg_None:
-                        printf("none ");
-                        break;
-                    case vm_reg_Int:
-                        printf("ints[%d] ", reg.index);
-                        break;
-                    case vm_reg_Float:
-                        printf("floats[%d] ", reg.index);
-                        break;
-                    case vm_reg_Ptr:
-                        printf("ptrs[%d] ", reg.index);
-                        break;
-                    case vm_reg_Char:
-                        printf("chars[%d] ", reg.index);
-                        break;
-                    case vm_reg_BP:
-                        printf("bp ");
-                        break;
-                    case vm_reg_SP:
-                        printf("sp ");
-                        break;
-                    case vm_reg_IP:
-                        printf("ip ");
-                        break;
+                if (vm_reg_is_single(reg.type)) {
+                    printf("%s ", vm_reg_name(reg.type));
+                }
+                else {
+                    printf("%ss[%d] ", vm_reg_name(reg.type), reg.index);
                 }
 
                 printf("%ld\n", off);
@@ -1211,31 +1248,11 @@ vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 
                 printf("push ");
 
-                switch (reg.type) {
-                    case vm_reg_None:
-                        printf("none ");
-                        break;
-                    case vm_reg_Int:
-                        printf("ints[%d] ", reg.index);
-                        break;
-                    case vm_reg_Float:
-                        printf("floats[%d] ", reg.index);
-                        break;
-                    case vm_reg_Ptr:
-                        printf("ptrs[%d] ", reg.index);
-                        break;
-                    case vm_reg_Char:
-                        printf("chars[%d] ", reg.index);
-                        break;
-                    case vm_reg_BP:
-                        printf("bp ");
-                        break;
-                    case vm_reg_SP:
-                        printf("sp ");
-                        break;
-                    case vm_reg_IP:
-                        printf("ip ");
-                        break;
+                if (vm_reg_is_single(reg.type)) {
+                    printf("%s ", vm_reg_name(reg.type));
+                }
+                else {
+                    printf("%ss[%d] ", vm_reg_name(reg.type), reg.index);
                 }
 
                 printf("%ld\n", off);
@@ -1316,32 +1333,17 @@ vm_disassemble(vm_mem_buf_t *code, vm_debug_info_t *debug_info)
 
                 printf("print ");
 
-                switch (reg.type) {
-                    case vm_reg_None:
-                        printf("none\n");
-                        break;
-                    case vm_reg_Int:
-                        printf("ints[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Float:
-                        printf("floats[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Ptr:
-                        printf("ptrs[%d]\n", reg.index);
-                        break;
-                    case vm_reg_Char:
-                        printf("chars[%d]\n", reg.index);
-                        break;
-                    case vm_reg_BP:
-                        printf("bp\n");
-                        break;
-                    case vm_reg_SP:
-                        printf("sp\n");
-                        break;
-                    case vm_reg_IP:
-                        printf("ip\n");
-                        break;
+                if (vm_reg_is_single(reg.type)) {
+                    printf("%s\n", vm_reg_name(reg.type));
                 }
+                else {
+                    printf("%ss[%d]\n", vm_reg_name(reg.type), reg.index);
+                }
+            } break;
+
+            case vm_inst_CZ: {
+                cz_intr_t intr = VM_MEM_GET(code->data, &ip, cz_intr_t);
+                printf("cz %d\n", intr);
             } break;
 
             default:

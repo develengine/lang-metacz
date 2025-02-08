@@ -85,8 +85,7 @@
     }) \
 )
 
-#define CZ_SCOPE_BEGIN(cz) \
-( \
+#define CZ_SCOPE_BEGIN(cz) ( \
     cz_debug_line(cz, __LINE__), \
     cz_emit_inst((cz), (cz_inst_t) { \
         .type  = cz_inst_ScopeBegin, \
@@ -137,28 +136,19 @@
 )
 
 #define CZ_VAR(cz, type_sf) \
-    cz_add_variable((cz), (cz_type_t) { \
-        .type = cz_type_type_Leaf, \
-        .leaf = cz_type_##type_sf, \
-    })
+    cz_add_variable((cz), cz_add_leaf((cz), cz_type_##type_sf))
 
 #define CZ_VAR_TYPE(cz, type) \
     cz_add_variable((cz), type)
 
 #define CZ_IN(cz, type_sf) \
-    cz_add_input((cz), (cz_type_t) { \
-        .type = cz_type_type_Leaf, \
-        .leaf = cz_type_##type_sf, \
-    })
+    cz_add_input((cz), cz_add_leaf((cz), cz_type_##type_sf))
 
 #define CZ_IN_TYPE(cz, type) \
     cz_add_input((cz), type)
 
 #define CZ_RES(cz, type_sf) \
-    cz_add_result((cz), (cz_type_t) { \
-        .type = cz_type_type_Leaf, \
-        .leaf = cz_type_##type_sf, \
-    })
+    cz_add_result((cz), cz_add_leaf((cz), cz_type_##type_sf))
 
 #define CZ_RES_TYPE(cz, type) \
     cz_add_result((cz), type)
@@ -237,7 +227,15 @@
     }) \
 )
 
-#define CZ_LEAF(type_sf) ((cz_type_t) { .type = cz_type_type_Leaf, .leaf = cz_type_##type_sf })
+#define CZ_INTR(cz, intr_sf) ( \
+    cz_debug_line(cz, __LINE__), \
+    cz_emit_inst((cz), (cz_inst_t) { \
+        .type = cz_inst_Intr, \
+        .intr = cz_intr_##intr_sf, \
+    }) \
+)
+
+#define CZ_LEAF(cz, type_sf) cz_add_leaf((cz), cz_type_##type_sf)
 
 #endif // CZEASY_H_
 

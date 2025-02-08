@@ -1,19 +1,50 @@
 
-[X] Debug information for the instructions.
-  X 09:00 - 11:13
+[X] The metaprogramming extension:
+  [X] CZ context type.
+  [X] Add a foreign pointer register.
+    X 09:00 - 10:33
+  [X] Way to pass the cz context to the vm at start.
+    X 10:33 - 10:36
+  [X] Make types also just an index into an array.
+    X 10:36 - 12:04
+  [X] An enum of intrinsic functions for cz commands.
+    - And an instrinsic instruction.
+  [X] Instructions for vm that operate on the cz context.
+X The other day now...
+
+
+[ ] Stretchy array extension:
+  [ ] Make it possible to pass references to functions.
+  [ ] New type.
+  [ ] Push intrinsic.
+  [ ] Pop instrinsic.
+  [ ] Reserve intrinsic.
+  [ ] Clear intrinsic.
+  [ ] Indexing through the index instruction.
+  [ ] Select accessors for the size and capacity.
+  [ ] Special reference which refers to the full structure as base.
+  [ ] Can't be passed by value, or loaded to stack by value.
+  [ ] Structures that contain it also can't be passed / loaded by value.
 
 OPTIONS:
-[ ] Implement ways to put methods on types and so on.
-
-[ ] We must tear out the static cz2vm state from the compile method.
+[ ] Make the scope begin/end a command not just an instruction on the C side.
+[ ] Implement the type conversion instruction.
 [ ] Add views (aka. fat references).
 [ ] Implement memory safe checks and passing.
-[ ] Implement stretchy arrays.
+[ ] Implement the stretchy array extension.
+  - Without it the programs are memory stable (the memory complexity can be computed precisely).
+[ ] Implement a file io extension.
+  - This needs to be done right, this is something the adoptability of metacz relies on.
 [ ] Implement the assembler.
   [ ] Standardize the binary format for the metacz.
     - Maybe there would be an opaque format for the code, but with the memory extension it would be exposed.
 [ ] Implement the memory extension.
-[ ] Implement a file io extension.
+[ ] Implement modules.
+[ ] We must tear out the static cz2vm state from the compile method.
+[ ] Rewrite the vm to be more specialized for the metacz interface.
+[ ] Clean up meta immediates in C.
+[ ] Maybe an intrinsic to execute code as well.
+[ ] A way to encode immediate meta values (types, locals, labels, intrinsic functions).
 
 Memory Extension:
 [ ] Add a byte type.
@@ -21,6 +52,9 @@ Memory Extension:
 [ ] Provide size and alignment members/methods for types.
 [ ] Expose some way of allocating memory from the OS (more direct then malloc/free).
 ?[ ] Expose an allocator API that can be used instead of the default allocation method.
+  - I guess just for stretchy arrays.
+[ ] Allow jumping into the code.
+  - This might need a bit of thought though, because of the instability of the calling conventions.
 
 NEXT:
 - Use _Generic to implement store and load helpers.

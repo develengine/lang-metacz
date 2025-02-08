@@ -79,7 +79,7 @@ main(void)
     UTILS_ASSERT(data);
 
     *(int*)(data) = 10;
-    vm_run(c, data, data_size);
+    vm_run(c, 0, data, data_size);
 
     return 0;
 }

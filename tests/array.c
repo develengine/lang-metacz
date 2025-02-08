@@ -23,7 +23,7 @@ main(void)
 
     CZ_FUNC(cz, main_func) {
         int def_arr_size = 20;
-        cz_type_t arr_type = cz_array(cz, CZ_LEAF(Int), def_arr_size);
+        cz_type_id_t arr_type = cz_array(cz, CZ_LEAF(cz, Int), def_arr_size);
         cz_var_t var_1 = CZ_VAR_TYPE(cz, arr_type);
         cz_var_t counter = CZ_VAR(cz, Int);
 
@@ -102,7 +102,7 @@ main(void)
     unsigned char *data = malloc(data_size);
     UTILS_ASSERT(data);
 
-    vm_run(c, data, data_size);
+    vm_run(c, 0, data, data_size);
 
     return 0;
 }

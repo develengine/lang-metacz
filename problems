@@ -1,22 +1,43 @@
 
 
-Assembler syntax?
+We need some way of specifying modules and namespaces:
+- A hard requirement is that metacz can be used as a shell without much external context.
+  - The internal interface then also needs to be fairly agnostic of how it is being used.
+- This also touches on how global context for a given function is handled.
+  - Functions from different namespaces will expect different global states.
 
+- Maybe for now, if code is required, it still needs to be recorded throught the interface.
+  - here the reasonable solution would be a state for which namespace / environment the code is comming from.
+  - However, for later, we will need some way of merging the states of multiple interface contexts.
 
+- We might consider the full context to have 2 different states: active and passive.
+  - Passive state may not be further expanded and mutated, but an active one can.
 
+- The only way to introduce new functions to the code, is to create an object and call the methods on it.
+  - This should then implement a lookup / mapping from the requested methods to the actual methods.
+  - This does need some way of identifying the individual methods in an absolute fasion.
+    - Something like string identifiers... at least.
+  - This then requires a way of exporting the method under a specific identifier.
 
+A processor program could consume a stream of metacz commands and decide what needs to happen based on that.
+  - Meta programming.
+  - Shell.
+  - Type checking.
+- We thus need to be able to define this processor in metacz and have it be able to take over.
 
+For now, we will just create a basic path to metaprogramming.
+- We will create a cz object, which can be passed as a parameter to the main function,
+  and then the program will be able to mutate it and build up another program.
+- We can also pass in an object that allows one to execute the recorded code.
+  - Maybe 2. One that compiles the code, the other that then takes the compiled code and executes it.
+- This will be the meta extension.
+- Maybe the cz object should provide a method for executing the given function.
 
-
-
-
-
-
-
-
-
-
-
+Addressing functions and structures from a different module might be done at compile time.
+ - This would make sense, since we can then just use functions and types and everithing as normal.
+   - For instance, a basic subscript call notation requires type checking as we go.
+ - For the metaprogramming extension we can just create a special instruction 'intrinsic'.
+  - Then we might think of creating some way of retrieving the intrinsic codes as if they are separated into modules.
 
 proper:
 - Access to type information of the expressions' call (in a generator).
